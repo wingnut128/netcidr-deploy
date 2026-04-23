@@ -71,6 +71,23 @@ url:
 logs:
     gcloud run services logs read {{service}} --region={{region}} --limit=50
 
+# Deploy the Slack notifier Cloud Function (Pub/Sub trigger on cloud-builds topic)
+deploy-notifier:
+    @test -n "{{project}}" || { echo "gcloud project not set"; exit 1; }
+    gcloud functions deploy cloudbuild-slack-notifier \
+        --gen2 \
+        --region={{region}} \
+        --runtime=python312 \
+        --source=./notifier \
+        --entry-point=notify \
+        --trigger-topic=cloud-builds \
+        --set-env-vars=GCP_PROJECT={{project}},SLACK_SECRET_NAME=slack-webhook-cloudbuild,IMAGE_FILTER=netcidr \
+        --project={{project}}
+
+# Remove the Slack notifier
+destroy-notifier:
+    gcloud functions delete cloudbuild-slack-notifier --region={{region}} --quiet --project={{project}}
+
 # Tear down the Cloud Run service (keeps AR images). Prompts for confirmation.
 destroy:
     @if ! gcloud run services describe {{service}} --region={{region}} >/dev/null 2>&1; then \

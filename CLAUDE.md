@@ -65,3 +65,33 @@ Pass via `--substitutions=_FEATURES=...,_WITH_DASHBOARD=...` on `gcloud builds s
 | `_NETCIDR_REF` | `v0.19.3` | Upstream git tag/branch to build |
 | `_FEATURES` | `default` | Cargo features passed to Rust build |
 | `_WITH_DASHBOARD` | `true` | Build React dashboard SPA |
+
+Pass `_NETCIDR_REF=latest` to auto-resolve to the highest upstream semver tag at build time (resolved via `git ls-remote --sort=-version:refname`).
+
+## Slack notifications
+
+`notifier/` contains a Python Cloud Run Function that subscribes to the
+`cloud-builds` Pub/Sub topic, filters for our netcidr builds, and posts
+terminal-state (SUCCESS / FAILURE / TIMEOUT / CANCELLED) events to a Slack
+webhook stored in Secret Manager.
+
+One-time setup:
+
+```bash
+# 1. Store the webhook (read -s keeps it out of shell history)
+read -s WEBHOOK
+echo -n "$WEBHOOK" | gcloud secrets create slack-webhook-cloudbuild --data-file=-
+unset WEBHOOK
+
+# 2. Grant the Cloud Function runtime SA access
+PROJECT_NUMBER=$(gcloud projects describe "$(gcloud config get-value project)" --format='value(projectNumber)')
+gcloud secrets add-iam-policy-binding slack-webhook-cloudbuild \
+  --member="serviceAccount:${PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
+  --role=roles/secretmanager.secretAccessor
+
+# 3. Enable required APIs + deploy the function
+gcloud services enable secretmanager.googleapis.com cloudfunctions.googleapis.com eventarc.googleapis.com
+just deploy-notifier
+```
+
+To rotate the webhook: `gcloud secrets versions add slack-webhook-cloudbuild --data-file=-`. The function reads `versions/latest` on every invocation, so new events pick up the new secret automatically.
