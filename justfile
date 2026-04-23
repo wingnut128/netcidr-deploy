@@ -126,6 +126,40 @@ url:
 logs:
     gcloud run services logs read {{service}} --region={{region}} --limit=50
 
+# Map a custom domain to the Cloud Run service (prereq: verified in Search Console)
+map-domain hostname:
+    @test -n "{{project}}" || { echo "gcloud project not set"; exit 1; }
+    gcloud beta run domain-mappings create \
+        --service={{service}} \
+        --domain={{hostname}} \
+        --region={{region}} \
+        --project={{project}}
+    @echo ""
+    @echo "DNS records required:"
+    gcloud beta run domain-mappings describe \
+        --domain={{hostname}} \
+        --region={{region}} \
+        --project={{project}} \
+        --format='table(status.resourceRecords[].name, status.resourceRecords[].type, status.resourceRecords[].rrdata)'
+    @echo ""
+    @echo "Certificate provisioning takes ~15-60 min after DNS propagates."
+
+# Remove a custom domain mapping
+unmap-domain hostname:
+    gcloud beta run domain-mappings delete \
+        --domain={{hostname}} \
+        --region={{region}} \
+        --project={{project}} \
+        --quiet
+
+# Show status of a domain mapping (cert provisioning, DNS validation)
+domain-status hostname:
+    @gcloud beta run domain-mappings describe \
+        --domain={{hostname}} \
+        --region={{region}} \
+        --project={{project}} \
+        --format='yaml(status.conditions, status.resourceRecords, status.mappedRouteName)'
+
 # ─────────────────────────────── Teardown ───────────────────────────────
 
 # Tear down the Cloud Run service (keeps AR images). Prompts for confirmation.
