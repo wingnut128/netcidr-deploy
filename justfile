@@ -86,21 +86,21 @@ setup-slack: _require-notifier
 
 # Build + push + deploy (defaults from cloudbuild.yaml)
 deploy:
-    gcloud builds submit --config=cloudbuild.yaml --no-source
+    gcloud builds submit --config=cloudbuild.yaml --no-source --region={{region}}
 
 # Deploy the latest upstream semver tag (resolved at build time)
 deploy-latest:
-    gcloud builds submit --config=cloudbuild.yaml --no-source \
+    gcloud builds submit --config=cloudbuild.yaml --no-source --region={{region}} \
         --substitutions=_NETCIDR_REF=latest
 
 # Deploy a specific upstream tag, branch, or commit SHA (e.g. `just deploy-ref v0.19.3`)
 deploy-ref ref:
-    gcloud builds submit --config=cloudbuild.yaml --no-source \
+    gcloud builds submit --config=cloudbuild.yaml --no-source --region={{region}} \
         --substitutions=_NETCIDR_REF={{ref}}
 
 # Deploy with custom Cargo features (e.g. `just deploy-features swagger false`)
 deploy-features features with_dashboard="true":
-    gcloud builds submit --config=cloudbuild.yaml --no-source \
+    gcloud builds submit --config=cloudbuild.yaml --no-source --region={{region}} \
         --substitutions=_FEATURES={{features}},_WITH_DASHBOARD={{with_dashboard}}
 
 # Deploy the Slack notifier Cloud Function (Pub/Sub trigger on cloud-builds topic)
