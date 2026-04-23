@@ -75,23 +75,13 @@ Pass `_NETCIDR_REF=latest` to auto-resolve to the highest upstream semver tag at
 terminal-state (SUCCESS / FAILURE / TIMEOUT / CANCELLED) events to a Slack
 webhook stored in Secret Manager.
 
-One-time setup:
+Two commands:
 
 ```bash
-# 1. Store the webhook (read -s keeps it out of shell history)
-read -s WEBHOOK
-echo -n "$WEBHOOK" | gcloud secrets create slack-webhook-cloudbuild --data-file=-
-unset WEBHOOK
-
-# 2. Grant the Cloud Function runtime SA access
-PROJECT_NUMBER=$(gcloud projects describe "$(gcloud config get-value project)" --format='value(projectNumber)')
-gcloud secrets add-iam-policy-binding slack-webhook-cloudbuild \
-  --member="serviceAccount:${PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
-  --role=roles/secretmanager.secretAccessor
-
-# 3. Enable required APIs + deploy the function
-gcloud services enable secretmanager.googleapis.com cloudfunctions.googleapis.com eventarc.googleapis.com
-just deploy-notifier
+just setup-slack       # prompts for the webhook (hidden), stores in Secret Manager, grants SA
+just deploy-notifier   # deploys the Cloud Run Function subscribed to the cloud-builds topic
 ```
 
-To rotate the webhook: `gcloud secrets versions add slack-webhook-cloudbuild --data-file=-`. The function reads `versions/latest` on every invocation, so new events pick up the new secret automatically.
+`setup-slack` is re-run to rotate — it adds a new secret version each time. The function reads `versions/latest` on every invocation, so rotations take effect immediately.
+
+APIs and the `cloud-builds` Pub/Sub topic are provisioned by `just bootstrap` — no separate steps needed.
