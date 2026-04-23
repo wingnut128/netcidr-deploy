@@ -7,6 +7,11 @@
 #     --substitutions=_NETCIDR_REF=latest           # highest semver tag upstream
 #   gcloud builds submit --config=cloudbuild.yaml --no-source \
 #     --substitutions=_NETCIDR_REF=v0.19.3,_FEATURES=swagger
+#
+# Note: Cloud Build parses every $VAR / ${VAR} in this file as a substitution
+# reference. Bash-local variables must be written with a doubled `$` ($$VAR)
+# so they reach the shell intact. Built-ins ($PROJECT_ID) and user subs
+# (${_NETCIDR_REF}) stay bare.
 
 steps:
   - id: clone
@@ -17,19 +22,19 @@ steps:
       - -c
       - |
         REF="${_NETCIDR_REF}"
-        if [ "$REF" = "latest" ]; then
-          REF=$(git ls-remote --tags --sort=-version:refname \
-                  https://github.com/wingnut128/netcidr.git 'v*.*.*' \
-                | awk '{print $2}' \
-                | grep -v '\^{}' \
-                | head -1 \
-                | sed 's|refs/tags/||')
-          echo "Resolved _NETCIDR_REF=latest → $REF"
+        if [ "$$REF" = "latest" ]; then
+          REF=$$(git ls-remote --tags --sort=-version:refname \
+                    https://github.com/wingnut128/netcidr.git 'v*.*.*' \
+                  | awk '{print $$2}' \
+                  | grep -v '\^{}' \
+                  | head -1 \
+                  | sed 's|refs/tags/||')
+          echo "Resolved _NETCIDR_REF=latest → $$REF"
         fi
-        echo "$REF" > /workspace/resolved-ref
+        echo "$$REF" > /workspace/resolved-ref
         git clone https://github.com/wingnut128/netcidr.git /workspace/netcidr
         cd /workspace/netcidr
-        git checkout "$REF"
+        git checkout "$$REF"
 
   - id: build
     name: gcr.io/cloud-builders/docker
@@ -39,13 +44,13 @@ steps:
       - -eu
       - -c
       - |
-        REF=$(cat /workspace/resolved-ref)
+        REF=$$(cat /workspace/resolved-ref)
         IMAGE="${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/netcidr"
         docker build \
           --build-arg=FEATURES=${_FEATURES} \
           --build-arg=WITH_DASHBOARD=${_WITH_DASHBOARD} \
-          --tag="$IMAGE:$REF" \
-          --tag="$IMAGE:latest" \
+          --tag="$$IMAGE:$$REF" \
+          --tag="$$IMAGE:latest" \
           .
 
   - id: push
@@ -62,10 +67,10 @@ steps:
       - -eu
       - -c
       - |
-        REF=$(cat /workspace/resolved-ref)
-        IMAGE="${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/netcidr:$REF"
+        REF=$$(cat /workspace/resolved-ref)
+        IMAGE="${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/netcidr:$$REF"
         gcloud run deploy ${_SERVICE_NAME} \
-          --image="$IMAGE" \
+          --image="$$IMAGE" \
           --region=${_REGION} \
           --platform=managed \
           --allow-unauthenticated \
