@@ -11,7 +11,7 @@ cb_connection := "github-connection"
 cb_repo := "netcidr-deploy"
 autobuild_trigger := "netcidr-weekly-rebuild"
 autobuild_schedule := "0 9 * * 1"
-autobuild_tz := "America/Los_Angeles"
+autobuild_tz := "America/New_York"
 # Opt-in flags — see .env.example. Set in .env to enable.
 notifier := env_var_or_default("NETCIDR_NOTIFIER", "false")
 autobuild := env_var_or_default("NETCIDR_AUTOBUILD", "false")

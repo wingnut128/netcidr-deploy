@@ -77,7 +77,7 @@ webhook stored in Secret Manager.
 
 ## Weekly auto-rebuild
 
-Opt-in via `NETCIDR_AUTOBUILD=true` in `.env`. A Cloud Build manual trigger (backed by this repo via a GitHub App connection) runs `cloudbuild.yaml` with `_NETCIDR_REF=latest`; a Cloud Scheduler job fires the trigger weekly (Mon 09:00 America/Los_Angeles by default).
+Opt-in via `NETCIDR_AUTOBUILD=true` in `.env`. A Cloud Build manual trigger (backed by this repo via a GitHub App connection) runs `cloudbuild.yaml` with `_NETCIDR_REF=latest`; a Cloud Scheduler job fires the trigger weekly (Mon 09:00 America/New_York by default).
 
 **Prereqs:**
 - Cloud Build GitHub connection (one-time, via Console → Cloud Build → Connections). Grant the Google Cloud Build GitHub App access to this repo.
