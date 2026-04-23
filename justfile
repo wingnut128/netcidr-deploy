@@ -50,14 +50,13 @@ bootstrap:
     fi
 
     @echo "→ Granting run.admin to the Cloud Build service account…"
-    @PROJECT_NUMBER=$(gcloud projects describe {{project}} --format='value(projectNumber)'); \
-        CB_SA="$${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"; \
+    @CB_SA="$(gcloud projects describe {{project}} --format='value(projectNumber)')-compute@developer.gserviceaccount.com"; \
         gcloud projects add-iam-policy-binding {{project}} \
-            --member="serviceAccount:$${CB_SA}" \
+            --member="serviceAccount:$CB_SA" \
             --role=roles/run.admin \
             --condition=None \
             --quiet >/dev/null; \
-        echo "  run.admin granted to $${CB_SA}"
+        echo "  run.admin granted to $CB_SA"
 
     @echo "✓ Bootstrap complete. Next: just deploy$(if [ "{{notifier}}" = "true" ]; then echo "  (or: just setup-slack)"; fi)"
 
@@ -76,9 +75,9 @@ setup-slack: _require-notifier
         fi && \
         unset WEBHOOK
     @echo "→ Granting secretAccessor to the compute SA…"
-    @PROJECT_NUMBER=$(gcloud projects describe {{project}} --format='value(projectNumber)'); \
+    @CB_SA="$(gcloud projects describe {{project}} --format='value(projectNumber)')-compute@developer.gserviceaccount.com"; \
         gcloud secrets add-iam-policy-binding {{slack_secret}} \
-            --member="serviceAccount:$${PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
+            --member="serviceAccount:$CB_SA" \
             --role=roles/secretmanager.secretAccessor \
             --project={{project}} --quiet >/dev/null
     @echo "✓ Slack secret stored. Next: just deploy-notifier"
