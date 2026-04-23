@@ -1,0 +1,96 @@
+# Cloud Build pipeline: fetch upstream netcidr at a ref, build with
+# configurable Cargo FEATURES, push to Artifact Registry, deploy to Cloud Run.
+#
+# Submit:
+#   gcloud builds submit --config=cloudbuild.yaml --no-source
+#   gcloud builds submit --config=cloudbuild.yaml --no-source \
+#     --substitutions=_NETCIDR_REF=latest           # highest semver tag upstream
+#   gcloud builds submit --config=cloudbuild.yaml --no-source \
+#     --substitutions=_NETCIDR_REF=v0.19.3,_FEATURES=swagger
+
+steps:
+  - id: clone
+    name: gcr.io/cloud-builders/git
+    entrypoint: bash
+    args:
+      - -eu
+      - -c
+      - |
+        REF="${_NETCIDR_REF}"
+        if [ "$REF" = "latest" ]; then
+          REF=$(git ls-remote --tags --sort=-version:refname \
+                  https://github.com/wingnut128/netcidr.git 'v*.*.*' \
+                | awk '{print $2}' \
+                | grep -v '\^{}' \
+                | head -1 \
+                | sed 's|refs/tags/||')
+          echo "Resolved _NETCIDR_REF=latest → $REF"
+        fi
+        echo "$REF" > /workspace/resolved-ref
+        git clone https://github.com/wingnut128/netcidr.git /workspace/netcidr
+        cd /workspace/netcidr
+        git checkout "$REF"
+
+  - id: build
+    name: gcr.io/cloud-builders/docker
+    dir: /workspace/netcidr
+    entrypoint: bash
+    args:
+      - -eu
+      - -c
+      - |
+        REF=$(cat /workspace/resolved-ref)
+        IMAGE="${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/netcidr"
+        docker build \
+          --build-arg=FEATURES=${_FEATURES} \
+          --build-arg=WITH_DASHBOARD=${_WITH_DASHBOARD} \
+          --tag="$IMAGE:$REF" \
+          --tag="$IMAGE:latest" \
+          .
+
+  - id: push
+    name: gcr.io/cloud-builders/docker
+    args:
+      - push
+      - --all-tags
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/netcidr
+
+  - id: deploy
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: bash
+    args:
+      - -eu
+      - -c
+      - |
+        REF=$(cat /workspace/resolved-ref)
+        IMAGE="${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/netcidr:$REF"
+        gcloud run deploy ${_SERVICE_NAME} \
+          --image="$IMAGE" \
+          --region=${_REGION} \
+          --platform=managed \
+          --allow-unauthenticated \
+          --port=8080 \
+          --memory=256Mi \
+          --cpu=1 \
+          --min-instances=0 \
+          --max-instances=3 \
+          --concurrency=80 \
+          --timeout=30 \
+          --cpu-throttling \
+          --set-env-vars=RUST_LOG=info \
+          --args=serve,--address,0.0.0.0,--port,8080
+
+substitutions:
+  _REGION: us-central1
+  _AR_REPO: netcidr-repo
+  _SERVICE_NAME: netcidr
+  # Default pinned to the "migrate Dockerfile runtime to Chainguard static base"
+  # commit on main, which includes the curl install needed by utoipa-swagger-ui's
+  # build script. Pass `_NETCIDR_REF=latest` to auto-resolve to the highest
+  # upstream semver tag (safe once upstream cuts v0.19.4 or later).
+  _NETCIDR_REF: afd5fb9e106ac098a75f5a794af9bbb631dd41b3
+  _FEATURES: default
+  _WITH_DASHBOARD: "true"
+
+options:
+  logging: CLOUD_LOGGING_ONLY
