@@ -65,3 +65,31 @@ Pass via `--substitutions=_FEATURES=...,_WITH_DASHBOARD=...` on `gcloud builds s
 | `_NETCIDR_REF` | `v0.19.3` | Upstream git tag/branch to build |
 | `_FEATURES` | `default` | Cargo features passed to Rust build |
 | `_WITH_DASHBOARD` | `true` | Build React dashboard SPA |
+
+Pass `_NETCIDR_REF=latest` to auto-resolve to the highest upstream semver tag at build time (resolved via `git ls-remote --sort=-version:refname`).
+
+## Slack notifications
+
+`notifier/` contains a Python Cloud Run Function that subscribes to the
+`cloud-builds` Pub/Sub topic, filters for our netcidr builds, and posts
+terminal-state (SUCCESS / FAILURE / TIMEOUT / CANCELLED) events to a Slack
+webhook stored in Secret Manager.
+
+Opt-in via `.env`. Default is **disabled** — `bootstrap` stays minimal and notifier recipes refuse to run.
+
+```bash
+# 1. Enable the flag
+cp .env.example .env
+# edit .env → NETCIDR_NOTIFIER=true
+
+# 2. Re-run bootstrap (adds Cloud Functions/Eventarc/Secret Manager APIs + Pub/Sub topic)
+just bootstrap
+
+# 3. Store the webhook (prompts, never echoed) and deploy the function
+just setup-slack
+just deploy-notifier
+```
+
+`setup-slack` is re-run to rotate — it adds a new secret version each time. The function reads `versions/latest` on every invocation, so rotations take effect immediately.
+
+With `NETCIDR_NOTIFIER=false` (or unset), `setup-slack` / `deploy-notifier` / `destroy-notifier` all fail fast with a helpful message.
