@@ -1,11 +1,14 @@
 set shell := ["bash", "-euo", "pipefail", "-c"]
+set dotenv-load := true
 
 region := "us-central1"
 ar_repo := "netcidr-repo"
 service := "netcidr"
-notifier := "cloudbuild-slack-notifier"
+notifier_name := "cloudbuild-slack-notifier"
 slack_secret := "slack-webhook-cloudbuild"
 cloudbuild_topic := "cloud-builds"
+# Opt-in flag — see .env.example. Set NETCIDR_NOTIFIER=true in .env to enable.
+notifier := env_var_or_default("NETCIDR_NOTIFIER", "false")
 # gcloud config project (must be set via `gcloud config set project <id>`)
 project := `gcloud config get-value project 2>/dev/null`
 
@@ -15,25 +18,21 @@ default:
 
 # ─────────────────────────────── Bootstrap ───────────────────────────────
 
-# One-time setup: APIs + AR repo + Pub/Sub topic + CB service-account perms (idempotent)
+# One-time setup: APIs + AR repo + CB service-account perms (idempotent)
 bootstrap:
     @test -n "{{project}}" || { echo "gcloud project not set. Run: gcloud config set project <id>"; exit 1; }
-    @echo "Project: {{project}}"
+    @echo "Project: {{project}}   Notifier: {{notifier}}"
 
-    @echo "→ Enabling required APIs…"
-    gcloud services enable \
-        cloudbuild.googleapis.com \
-        artifactregistry.googleapis.com \
-        run.googleapis.com \
-        secretmanager.googleapis.com \
-        cloudfunctions.googleapis.com \
-        eventarc.googleapis.com \
-        pubsub.googleapis.com \
-        --project={{project}}
+    @echo "→ Enabling core APIs…"
+    @APIS="cloudbuild.googleapis.com artifactregistry.googleapis.com run.googleapis.com"; \
+        if [ "{{notifier}}" = "true" ]; then \
+            APIS="$APIS secretmanager.googleapis.com cloudfunctions.googleapis.com eventarc.googleapis.com pubsub.googleapis.com"; \
+        fi; \
+        gcloud services enable $APIS --project={{project}}
 
     @echo "→ Ensuring Artifact Registry repo…"
     @if gcloud artifacts repositories describe {{ar_repo}} --location={{region}} --project={{project}} >/dev/null 2>&1; then \
-        echo "  AR repo '{{ar_repo}}' already exists in {{region}} — skipping."; \
+        echo "  AR repo '{{ar_repo}}' already exists — skipping."; \
     else \
         gcloud artifacts repositories create {{ar_repo}} \
             --repository-format=docker \
@@ -41,11 +40,13 @@ bootstrap:
             --project={{project}}; \
     fi
 
-    @echo "→ Ensuring Cloud Build → Pub/Sub topic…"
-    @if gcloud pubsub topics describe {{cloudbuild_topic}} --project={{project}} >/dev/null 2>&1; then \
-        echo "  Topic '{{cloudbuild_topic}}' already exists — skipping."; \
-    else \
-        gcloud pubsub topics create {{cloudbuild_topic}} --project={{project}}; \
+    @if [ "{{notifier}}" = "true" ]; then \
+        echo "→ Ensuring Cloud Build → Pub/Sub topic…"; \
+        if gcloud pubsub topics describe {{cloudbuild_topic}} --project={{project}} >/dev/null 2>&1; then \
+            echo "  Topic '{{cloudbuild_topic}}' already exists — skipping."; \
+        else \
+            gcloud pubsub topics create {{cloudbuild_topic}} --project={{project}}; \
+        fi; \
     fi
 
     @echo "→ Granting run.admin to the Cloud Build service account…"
@@ -58,10 +59,10 @@ bootstrap:
             --quiet >/dev/null; \
         echo "  run.admin granted to $${CB_SA}"
 
-    @echo "✓ Bootstrap complete. Next: just deploy  (or: just setup-slack)"
+    @echo "✓ Bootstrap complete. Next: just deploy$(if [ "{{notifier}}" = "true" ]; then echo "  (or: just setup-slack)"; fi)"
 
 # Store/rotate the Slack webhook in Secret Manager (prompts, never echoed)
-setup-slack:
+setup-slack: _require-notifier
     @test -n "{{project}}" || { echo "gcloud project not set"; exit 1; }
     @echo -n "Paste Slack incoming webhook URL (hidden): "
     @read -rs WEBHOOK && echo && \
@@ -104,9 +105,9 @@ deploy-features features with_dashboard="true":
         --substitutions=_FEATURES={{features}},_WITH_DASHBOARD={{with_dashboard}}
 
 # Deploy the Slack notifier Cloud Function (Pub/Sub trigger on cloud-builds topic)
-deploy-notifier:
+deploy-notifier: _require-notifier
     @test -n "{{project}}" || { echo "gcloud project not set"; exit 1; }
-    gcloud functions deploy {{notifier}} \
+    gcloud functions deploy {{notifier_name}} \
         --gen2 \
         --region={{region}} \
         --runtime=python312 \
@@ -139,9 +140,17 @@ destroy:
     gcloud run services delete {{service}} --region={{region}} --quiet
 
 # Remove the Slack notifier Cloud Function
-destroy-notifier:
-    @if ! gcloud functions describe {{notifier}} --region={{region}} --project={{project}} >/dev/null 2>&1; then \
-        echo "Function '{{notifier}}' not found — nothing to destroy."; \
+destroy-notifier: _require-notifier
+    @if ! gcloud functions describe {{notifier_name}} --region={{region}} --project={{project}} >/dev/null 2>&1; then \
+        echo "Function '{{notifier_name}}' not found — nothing to destroy."; \
         exit 0; \
     fi
-    gcloud functions delete {{notifier}} --region={{region}} --quiet --project={{project}}
+    gcloud functions delete {{notifier_name}} --region={{region}} --quiet --project={{project}}
+
+# ─────────────────────────────── Internal ───────────────────────────────
+
+_require-notifier:
+    @if [ "{{notifier}}" != "true" ]; then \
+        echo "Slack notifier is disabled. Set NETCIDR_NOTIFIER=true in .env (see .env.example) and re-run 'just bootstrap' first."; \
+        exit 1; \
+    fi
