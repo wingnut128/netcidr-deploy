@@ -7,8 +7,14 @@ service := "netcidr"
 notifier_name := "cloudbuild-slack-notifier"
 slack_secret := "slack-webhook-cloudbuild"
 cloudbuild_topic := "cloud-builds"
-# Opt-in flag — see .env.example. Set NETCIDR_NOTIFIER=true in .env to enable.
+cb_connection := "github-connection"
+cb_repo := "netcidr-deploy"
+autobuild_trigger := "netcidr-weekly-rebuild"
+autobuild_schedule := "0 9 * * 1"
+autobuild_tz := "America/Los_Angeles"
+# Opt-in flags — see .env.example. Set in .env to enable.
 notifier := env_var_or_default("NETCIDR_NOTIFIER", "false")
+autobuild := env_var_or_default("NETCIDR_AUTOBUILD", "false")
 # gcloud config project (must be set via `gcloud config set project <id>`)
 project := `gcloud config get-value project 2>/dev/null`
 
@@ -27,6 +33,9 @@ bootstrap:
     @APIS="cloudbuild.googleapis.com artifactregistry.googleapis.com run.googleapis.com"; \
         if [ "{{notifier}}" = "true" ]; then \
             APIS="$APIS secretmanager.googleapis.com cloudfunctions.googleapis.com eventarc.googleapis.com pubsub.googleapis.com"; \
+        fi; \
+        if [ "{{autobuild}}" = "true" ]; then \
+            APIS="$APIS cloudscheduler.googleapis.com"; \
         fi; \
         gcloud services enable $APIS --project={{project}}
 
@@ -58,7 +67,17 @@ bootstrap:
             --quiet >/dev/null; \
         echo "  run.admin granted to $CB_SA"
 
-    @echo "✓ Bootstrap complete. Next: just deploy$(if [ "{{notifier}}" = "true" ]; then echo "  (or: just setup-slack)"; fi)"
+    @if [ "{{autobuild}}" = "true" ]; then \
+        echo "→ Granting cloudbuild.builds.editor to compute SA (for trigger runs)…"; \
+        CB_SA="$(gcloud projects describe {{project}} --format='value(projectNumber)')-compute@developer.gserviceaccount.com"; \
+        gcloud projects add-iam-policy-binding {{project}} \
+            --member="serviceAccount:$CB_SA" \
+            --role=roles/cloudbuild.builds.editor \
+            --condition=None --quiet >/dev/null; \
+        echo "  cloudbuild.builds.editor granted"; \
+    fi
+
+    @echo "✓ Bootstrap complete. Next: just deploy"
 
 # Store/rotate the Slack webhook in Secret Manager (prompts, never echoed)
 setup-slack: _require-notifier
@@ -172,6 +191,67 @@ destroy:
         [[ "$ans" == "y" || "$ans" == "Y" ]] || { echo "Aborted."; exit 1; }
     gcloud run services delete {{service}} --region={{region}} --quiet
 
+# ─────────────────────────────── Autobuild ──────────────────────────────
+
+# Wire the weekly auto-rebuild: CB trigger + Cloud Scheduler job (idempotent)
+setup-autobuild: _require-autobuild
+    @test -n "{{project}}" || { echo "gcloud project not set"; exit 1; }
+    @echo "→ Checking Cloud Build GitHub repo link…"
+    @if ! gcloud builds repositories describe {{cb_repo}} --connection={{cb_connection}} --region={{region}} --project={{project}} >/dev/null 2>&1; then \
+        echo "  Linking repo {{cb_repo}} to connection {{cb_connection}}…"; \
+        gcloud builds repositories create {{cb_repo}} \
+            --remote-uri=https://github.com/wingnut128/{{cb_repo}}.git \
+            --connection={{cb_connection}} \
+            --region={{region}} \
+            --project={{project}}; \
+    else \
+        echo "  Repo already linked — skipping."; \
+    fi
+
+    @echo "→ Ensuring Cloud Build manual trigger…"
+    @PROJECT_NUM=$(gcloud projects describe {{project}} --format='value(projectNumber)'); \
+        CB_SA="$PROJECT_NUM-compute@developer.gserviceaccount.com"; \
+        REPO="projects/{{project}}/locations/{{region}}/connections/{{cb_connection}}/repositories/{{cb_repo}}"; \
+        EXISTING=$(gcloud builds triggers list --region={{region}} --project={{project}} --filter="name:{{autobuild_trigger}}" --format='value(name)' 2>/dev/null); \
+        if [ -n "$EXISTING" ]; then \
+            echo "  Trigger '{{autobuild_trigger}}' already exists — skipping."; \
+        else \
+            curl -sX POST \
+                "https://cloudbuild.googleapis.com/v1/projects/{{project}}/locations/{{region}}/triggers" \
+                -H "Authorization: Bearer $(gcloud auth print-access-token)" \
+                -H "Content-Type: application/json" \
+                -d "{\"name\":\"{{autobuild_trigger}}\",\"description\":\"Scheduled rebuild from latest netcidr release\",\"sourceToBuild\":{\"repository\":\"$REPO\",\"ref\":\"refs/heads/main\",\"repoType\":\"GITHUB\"},\"gitFileSource\":{\"path\":\"cloudbuild.yaml\",\"repository\":\"$REPO\",\"revision\":\"refs/heads/main\",\"repoType\":\"GITHUB\"},\"substitutions\":{\"_NETCIDR_REF\":\"latest\"},\"serviceAccount\":\"projects/{{project}}/serviceAccounts/$CB_SA\"}" \
+                | grep -q '"name"' && echo "  Trigger created." || { echo "  Trigger creation failed."; exit 1; }; \
+        fi
+
+    @echo "→ Ensuring Cloud Scheduler job ({{autobuild_schedule}} {{autobuild_tz}})…"
+    @CB_SA="$(gcloud projects describe {{project}} --format='value(projectNumber)')-compute@developer.gserviceaccount.com"; \
+        if gcloud scheduler jobs describe {{autobuild_trigger}} --location={{region}} --project={{project}} >/dev/null 2>&1; then \
+            echo "  Scheduler job already exists — skipping."; \
+        else \
+            gcloud scheduler jobs create http {{autobuild_trigger}} \
+                --location={{region}} \
+                --schedule="{{autobuild_schedule}}" \
+                --time-zone="{{autobuild_tz}}" \
+                --uri="https://cloudbuild.googleapis.com/v1/projects/{{project}}/locations/{{region}}/triggers/{{autobuild_trigger}}:run" \
+                --http-method=POST \
+                --update-headers=Content-Type=application/json \
+                --message-body='{}' \
+                --oauth-service-account-email="$CB_SA" \
+                --project={{project}}; \
+        fi
+    @echo "✓ Autobuild wired. Schedule: {{autobuild_schedule}} {{autobuild_tz}}"
+
+# Fire the autobuild trigger right now (ignore schedule)
+fire-rebuild: _require-autobuild
+    @gcloud scheduler jobs run {{autobuild_trigger}} --location={{region}} --project={{project}}
+    @echo "✓ Rebuild triggered. Tail progress: just logs-build"
+
+# Tail the most recent Cloud Build
+logs-build:
+    @BUILD_ID=$(gcloud builds list --region={{region}} --project={{project}} --limit=1 --format='value(id)'); \
+        gcloud builds log $BUILD_ID --region={{region}} --project={{project}}
+
 # Remove the Slack notifier Cloud Function
 destroy-notifier: _require-notifier
     @if ! gcloud functions describe {{notifier_name}} --region={{region}} --project={{project}} >/dev/null 2>&1; then \
@@ -187,3 +267,14 @@ _require-notifier:
         echo "Slack notifier is disabled. Set NETCIDR_NOTIFIER=true in .env (see .env.example) and re-run 'just bootstrap' first."; \
         exit 1; \
     fi
+
+_require-autobuild:
+    @if [ "{{autobuild}}" != "true" ]; then \
+        echo "Autobuild is disabled. Set NETCIDR_AUTOBUILD=true in .env (see .env.example) and re-run 'just bootstrap' first."; \
+        exit 1; \
+    fi
+
+# Remove the autobuild trigger + scheduler job
+destroy-autobuild: _require-autobuild
+    @gcloud scheduler jobs delete {{autobuild_trigger}} --location={{region}} --project={{project}} --quiet 2>&1 | tail -2 || true
+    @gcloud builds triggers delete {{autobuild_trigger}} --region={{region}} --project={{project}} --quiet 2>&1 | tail -2 || true
