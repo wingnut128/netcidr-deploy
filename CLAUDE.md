@@ -75,6 +75,25 @@ Pass `_NETCIDR_REF=latest` to auto-resolve to the highest upstream semver tag at
 terminal-state (SUCCESS / FAILURE / TIMEOUT / CANCELLED) events to a Slack
 webhook stored in Secret Manager.
 
+## Weekly auto-rebuild
+
+Opt-in via `NETCIDR_AUTOBUILD=true` in `.env`. A Cloud Build manual trigger (backed by this repo via a GitHub App connection) runs `cloudbuild.yaml` with `_NETCIDR_REF=latest`; a Cloud Scheduler job fires the trigger weekly (Mon 09:00 America/New_York by default).
+
+**Prereqs:**
+- Cloud Build GitHub connection (one-time, via Console → Cloud Build → Connections). Grant the Google Cloud Build GitHub App access to this repo.
+
+**Setup / teardown:**
+```bash
+just setup-autobuild     # links repo, creates trigger + scheduler job
+just fire-rebuild        # manually fire the trigger right now
+just destroy-autobuild   # remove trigger + scheduler job
+just logs-build          # tail the most recent build
+```
+
+Schedule / timezone are `autobuild_schedule` / `autobuild_tz` variables at the top of the `justfile`.
+
+## Slack notifications
+
 Opt-in via `.env`. Default is **disabled** — `bootstrap` stays minimal and notifier recipes refuse to run.
 
 ```bash
