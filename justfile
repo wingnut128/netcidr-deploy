@@ -4,12 +4,16 @@ set dotenv-load := true
 region := "us-central1"
 ar_repo := "netcidr-repo"
 service := "netcidr"
+v2_service := "netcidr-v2"
+v2_image := "netcidr-v2"
+v2_ref := "v2"
 notifier_name := "cloudbuild-slack-notifier"
 slack_secret := "slack-webhook-cloudbuild"
 cloudbuild_topic := "cloud-builds"
 cb_connection := "github-connection"
 cb_repo := "netcidr-deploy"
 autobuild_trigger := "netcidr-weekly-rebuild"
+v2_trigger := "netcidr-v2-manual"
 autobuild_schedule := "0 9 * * 1"
 autobuild_tz := "America/New_York"
 # Opt-in flags — see .env.example. Set in .env to enable.
@@ -122,6 +126,11 @@ deploy-features features with_dashboard="true":
     gcloud builds submit --config=cloudbuild.yaml --no-source --region={{region}} \
         --substitutions=_FEATURES={{features}},_WITH_DASHBOARD={{with_dashboard}}
 
+# Build + push + deploy the upstream netcidr v2 branch to a separate Cloud Run service
+deploy-v2:
+    gcloud builds submit --config=cloudbuild.yaml --no-source --region={{region}} \
+        --substitutions=_NETCIDR_REF={{v2_ref}},_IMAGE_NAME={{v2_image}},_SERVICE_NAME={{v2_service}}
+
 # Deploy the Slack notifier Cloud Function (Pub/Sub trigger on cloud-builds topic)
 deploy-notifier: _require-notifier
     @test -n "{{project}}" || { echo "gcloud project not set"; exit 1; }
@@ -192,6 +201,51 @@ destroy:
     gcloud run services delete {{service}} --region={{region}} --quiet
 
 # ─────────────────────────────── Autobuild ──────────────────────────────
+
+# Wire a manual Cloud Build trigger for the upstream netcidr v2 branch (idempotent)
+setup-v2-trigger:
+    @test -n "{{project}}" || { echo "gcloud project not set. Run: gcloud config set project <id>"; exit 1; }
+    @echo "→ Checking Cloud Build GitHub repo link…"
+    @if ! gcloud builds repositories describe {{cb_repo}} --connection={{cb_connection}} --region={{region}} --project={{project}} >/dev/null 2>&1; then \
+        echo "  Linking repo {{cb_repo}} to connection {{cb_connection}}…"; \
+        gcloud builds repositories create {{cb_repo}} \
+            --remote-uri=https://github.com/wingnut128/{{cb_repo}}.git \
+            --connection={{cb_connection}} \
+            --region={{region}} \
+            --project={{project}}; \
+    else \
+        echo "  Repo already linked — skipping."; \
+    fi
+
+    @echo "→ Ensuring Cloud Build manual v2 trigger…"
+    @PROJECT_NUM=$(gcloud projects describe {{project}} --format='value(projectNumber)'); \
+        CB_SA="$PROJECT_NUM-compute@developer.gserviceaccount.com"; \
+        REPO="projects/{{project}}/locations/{{region}}/connections/{{cb_connection}}/repositories/{{cb_repo}}"; \
+        gcloud projects add-iam-policy-binding {{project}} \
+            --member="serviceAccount:$CB_SA" \
+            --role=roles/cloudbuild.builds.editor \
+            --condition=None --quiet >/dev/null; \
+        EXISTING=$(gcloud builds triggers list --region={{region}} --project={{project}} --filter="name:{{v2_trigger}}" --format='value(name)' 2>/dev/null); \
+        if [ -n "$EXISTING" ]; then \
+            echo "  Trigger '{{v2_trigger}}' already exists — skipping."; \
+        else \
+            curl -sX POST \
+                "https://cloudbuild.googleapis.com/v1/projects/{{project}}/locations/{{region}}/triggers" \
+                -H "Authorization: Bearer $(gcloud auth print-access-token)" \
+                -H "Content-Type: application/json" \
+                -d "{\"name\":\"{{v2_trigger}}\",\"description\":\"Manual build and deploy of upstream netcidr v2 branch\",\"sourceToBuild\":{\"repository\":\"$REPO\",\"ref\":\"refs/heads/main\",\"repoType\":\"GITHUB\"},\"gitFileSource\":{\"path\":\"cloudbuild.yaml\",\"repository\":\"$REPO\",\"revision\":\"refs/heads/main\",\"repoType\":\"GITHUB\"},\"substitutions\":{\"_NETCIDR_REF\":\"{{v2_ref}}\",\"_IMAGE_NAME\":\"{{v2_image}}\",\"_SERVICE_NAME\":\"{{v2_service}}\"},\"serviceAccount\":\"projects/{{project}}/serviceAccounts/$CB_SA\"}" \
+                | grep -q '"name"' && echo "  Trigger created." || { echo "  Trigger creation failed."; exit 1; }; \
+        fi
+    @echo "✓ Manual v2 trigger wired. Run it with: just fire-v2-trigger"
+
+# Fire the manual v2 Cloud Build trigger
+fire-v2-trigger:
+    @gcloud builds triggers run {{v2_trigger}} --region={{region}} --branch=main --project={{project}}
+    @echo "✓ v2 build triggered. Tail progress: just logs-build"
+
+# Remove the manual v2 Cloud Build trigger
+destroy-v2-trigger:
+    @gcloud builds triggers delete {{v2_trigger}} --region={{region}} --project={{project}} --quiet 2>&1 | tail -2 || true
 
 # Wire the weekly auto-rebuild: CB trigger + Cloud Scheduler job (idempotent)
 setup-autobuild: _require-autobuild
