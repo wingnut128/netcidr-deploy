@@ -129,7 +129,7 @@ deploy-features features with_dashboard="true":
 # Build + push + deploy the upstream netcidr v2 branch to a separate Cloud Run service
 deploy-v2:
     gcloud builds submit --config=cloudbuild.yaml --no-source --region={{region}} \
-        --substitutions=_NETCIDR_REF={{v2_ref}},_IMAGE_NAME={{v2_image}},_SERVICE_NAME={{v2_service}}
+        --substitutions=_NETCIDR_REF={{v2_ref}},_IMAGE_NAME={{v2_image}},_SERVICE_NAME={{v2_service}},_ALLOW_PUBLIC_BIND=true
 
 # Deploy the Slack notifier Cloud Function (Pub/Sub trigger on cloud-builds topic)
 deploy-notifier: _require-notifier
@@ -227,15 +227,15 @@ setup-v2-trigger:
             --condition=None --quiet >/dev/null; \
         EXISTING=$(gcloud builds triggers list --region={{region}} --project={{project}} --filter="name:{{v2_trigger}}" --format='value(name)' 2>/dev/null); \
         if [ -n "$EXISTING" ]; then \
-            echo "  Trigger '{{v2_trigger}}' already exists — skipping."; \
-        else \
-            curl -sX POST \
-                "https://cloudbuild.googleapis.com/v1/projects/{{project}}/locations/{{region}}/triggers" \
-                -H "Authorization: Bearer $(gcloud auth print-access-token)" \
-                -H "Content-Type: application/json" \
-                -d "{\"name\":\"{{v2_trigger}}\",\"description\":\"Manual build and deploy of upstream netcidr v2 branch\",\"sourceToBuild\":{\"repository\":\"$REPO\",\"ref\":\"refs/heads/main\",\"repoType\":\"GITHUB\"},\"gitFileSource\":{\"path\":\"cloudbuild.yaml\",\"repository\":\"$REPO\",\"revision\":\"refs/heads/main\",\"repoType\":\"GITHUB\"},\"substitutions\":{\"_NETCIDR_REF\":\"{{v2_ref}}\",\"_IMAGE_NAME\":\"{{v2_image}}\",\"_SERVICE_NAME\":\"{{v2_service}}\"},\"serviceAccount\":\"projects/{{project}}/serviceAccounts/$CB_SA\"}" \
-                | grep -q '"name"' && echo "  Trigger created." || { echo "  Trigger creation failed."; exit 1; }; \
-        fi
+            echo "  Recreating trigger '{{v2_trigger}}' with current substitutions…"; \
+            gcloud builds triggers delete {{v2_trigger}} --region={{region}} --project={{project}} --quiet >/dev/null; \
+        fi; \
+        curl -sX POST \
+            "https://cloudbuild.googleapis.com/v1/projects/{{project}}/locations/{{region}}/triggers" \
+            -H "Authorization: Bearer $(gcloud auth print-access-token)" \
+            -H "Content-Type: application/json" \
+            -d "{\"name\":\"{{v2_trigger}}\",\"description\":\"Manual build and deploy of upstream netcidr v2 branch\",\"sourceToBuild\":{\"repository\":\"$REPO\",\"ref\":\"refs/heads/main\",\"repoType\":\"GITHUB\"},\"gitFileSource\":{\"path\":\"cloudbuild.yaml\",\"repository\":\"$REPO\",\"revision\":\"refs/heads/main\",\"repoType\":\"GITHUB\"},\"substitutions\":{\"_NETCIDR_REF\":\"{{v2_ref}}\",\"_IMAGE_NAME\":\"{{v2_image}}\",\"_SERVICE_NAME\":\"{{v2_service}}\",\"_ALLOW_PUBLIC_BIND\":\"true\"},\"serviceAccount\":\"projects/{{project}}/serviceAccounts/$CB_SA\"}" \
+            | grep -q '"name"' && echo "  Trigger created." || { echo "  Trigger creation failed."; exit 1; };
     @echo "✓ Manual v2 trigger wired. Run it with: just fire-v2-trigger"
 
 # Fire the manual v2 Cloud Build trigger

@@ -66,6 +66,7 @@ Pass via `--substitutions=_FEATURES=...,_WITH_DASHBOARD=...` on `gcloud builds s
 | `_AR_REPO` | `netcidr-repo` | Artifact Registry repo name |
 | `_IMAGE_NAME` | `netcidr` | Artifact Registry image name |
 | `_SERVICE_NAME` | `netcidr` | Cloud Run service name |
+| `_ALLOW_PUBLIC_BIND` | `false` | Append `allow_public_bind=true` to the Cloud Run startup args |
 | `_NETCIDR_REF` | pinned commit | Upstream git tag/branch/commit to build |
 | `_FEATURES` | `default` | Cargo features passed to Rust build |
 | `_WITH_DASHBOARD` | `true` | Build React dashboard SPA |
@@ -90,6 +91,7 @@ The v2 trigger runs `cloudbuild.yaml` with:
 _NETCIDR_REF=v2
 _IMAGE_NAME=netcidr-v2
 _SERVICE_NAME=netcidr-v2
+_ALLOW_PUBLIC_BIND=true
 ```
 
 ## Slack notifications
