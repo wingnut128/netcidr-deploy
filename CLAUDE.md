@@ -21,6 +21,9 @@ just deploy
 # Pin a specific upstream ref (tag, branch, or commit SHA)
 just deploy-ref v0.19.3
 
+# Build + deploy the upstream v2 branch to netcidr-v2
+just deploy-v2
+
 # Custom Cargo features
 just deploy-features swagger false
 
@@ -41,7 +44,7 @@ Under the hood, `just deploy` runs `gcloud builds submit --config=cloudbuild.yam
 `cloudbuild.yaml` steps:
 1. **clone** — `git clone` of the upstream netcidr repo, then `git checkout $_NETCIDR_REF` (accepts tags, branches, or commit SHAs)
 2. **build** — `docker build` with `--build-arg FEATURES=...` and `--build-arg WITH_DASHBOARD=...`, tagged both `:$_NETCIDR_REF` and `:latest`
-3. **push** — `docker push --all-tags` to `$_REGION-docker.pkg.dev/$PROJECT_ID/$_AR_REPO/netcidr`
+3. **push** — `docker push --all-tags` to `$_REGION-docker.pkg.dev/$PROJECT_ID/$_AR_REPO/$_IMAGE_NAME`
 4. **deploy** — `gcloud run deploy` (create-or-update) with 256Mi / 1 vCPU / concurrency 80 / min=0 / max=3, public (`--allow-unauthenticated`), command args `serve --address 0.0.0.0 --port 8080`
 
 **Bootstrap prerequisite**: the Cloud Build default service account (`<project-number>-compute@developer.gserviceaccount.com`) needs `roles/run.admin` to apply `--allow-unauthenticated`. `roles/run.developer` (Cloud Build's default) can deploy but can't set IAM policy on the service. `just bootstrap` grants this.
@@ -61,12 +64,33 @@ Pass via `--substitutions=_FEATURES=...,_WITH_DASHBOARD=...` on `gcloud builds s
 |---|---|---|
 | `_REGION` | `us-central1` | GCP region for AR + Cloud Run |
 | `_AR_REPO` | `netcidr-repo` | Artifact Registry repo name |
+| `_IMAGE_NAME` | `netcidr` | Artifact Registry image name |
 | `_SERVICE_NAME` | `netcidr` | Cloud Run service name |
-| `_NETCIDR_REF` | `v0.19.3` | Upstream git tag/branch to build |
+| `_NETCIDR_REF` | pinned commit | Upstream git tag/branch/commit to build |
 | `_FEATURES` | `default` | Cargo features passed to Rust build |
 | `_WITH_DASHBOARD` | `true` | Build React dashboard SPA |
 
 Pass `_NETCIDR_REF=latest` to auto-resolve to the highest upstream semver tag at build time (resolved via `git ls-remote --sort=-version:refname`).
+
+## Manual v2 trigger
+
+The upstream `v2` branch is wired as a separate manual Cloud Build path so it
+does not replace the existing `netcidr` service or `netcidr:latest` image.
+
+```bash
+just deploy-v2          # one-off submit from this machine
+just setup-v2-trigger   # create/update prerequisite repo link + manual trigger
+just fire-v2-trigger    # run the trigger manually
+just destroy-v2-trigger # remove only the manual v2 trigger
+```
+
+The v2 trigger runs `cloudbuild.yaml` with:
+
+```text
+_NETCIDR_REF=v2
+_IMAGE_NAME=netcidr-v2
+_SERVICE_NAME=netcidr-v2
+```
 
 ## Slack notifications
 
