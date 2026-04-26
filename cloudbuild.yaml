@@ -71,6 +71,11 @@ steps:
       - |
         REF=$$(cat /workspace/resolved-ref)
         IMAGE="${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_IMAGE_NAME}:$$REF"
+        RUN_ARGS=(serve --address 0.0.0.0 --port 8080 --enable-swagger)
+        if [ "${_ALLOW_PUBLIC_BIND}" = "true" ]; then
+          RUN_ARGS+=(allow_public_bind=true)
+        fi
+
         gcloud run deploy ${_SERVICE_NAME} \
           --image="$$IMAGE" \
           --region=${_REGION} \
@@ -85,13 +90,14 @@ steps:
           --timeout=30 \
           --cpu-throttling \
           --set-env-vars=RUST_LOG=info \
-          --args=serve,--address,0.0.0.0,--port,8080,--enable-swagger
+          --args="$$(IFS=,; echo "$${RUN_ARGS[*]}")"
 
 substitutions:
   _REGION: us-central1
   _AR_REPO: netcidr-repo
   _IMAGE_NAME: netcidr
   _SERVICE_NAME: netcidr
+  _ALLOW_PUBLIC_BIND: "false"
   # Default pinned to the "migrate Dockerfile runtime to Chainguard static base"
   # commit on main, which includes the curl install needed by utoipa-swagger-ui's
   # build script. Pass `_NETCIDR_REF=latest` to auto-resolve to the highest
