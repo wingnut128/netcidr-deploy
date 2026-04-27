@@ -1,6 +1,0 @@
-name: netcidr-v2
-runtime:
-  name: nodejs
-  options:
-    packagemanager: npm
-description: GCP Pulumi stack for netcidr v2 on Cloud Run with Cloud SQL, IPAM, and IAP.
