@@ -37,6 +37,14 @@ steps:
         git clone https://github.com/wingnut128/netcidr.git /workspace/netcidr
         cd /workspace/netcidr
         git checkout "$$REF"
+        if [ "${_ALLOW_PUBLIC_BIND}" = "true" ]; then
+          printf '%s\n' \
+            'allow_public_bind = true' \
+            'require_auth_for_public_bind = false' \
+            'enable_swagger = true' \
+            > netcidr-cloudrun.toml
+          sed -i '/^FROM cgr.dev\/chainguard\/static/a COPY netcidr-cloudrun.toml /app/netcidr.toml' Dockerfile
+        fi
 
   - id: build
     name: gcr.io/cloud-builders/docker
@@ -73,7 +81,7 @@ steps:
         IMAGE="${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_IMAGE_NAME}:$$REF"
         RUN_ARGS=(serve --address 0.0.0.0 --port 8080 --enable-swagger)
         if [ "${_ALLOW_PUBLIC_BIND}" = "true" ]; then
-          RUN_ARGS+=(allow_public_bind=true)
+          RUN_ARGS+=(--config /app/netcidr.toml)
         fi
 
         gcloud run deploy ${_SERVICE_NAME} \
