@@ -93,7 +93,11 @@ resource "google_cloud_run_v2_service" "netcidr" {
 }
 
 resource "google_cloud_run_domain_mapping" "netcidr" {
-  count = var.custom_domain == null ? 0 : 1
+  # Only create the GCP-side mapping when both a domain is set and the
+  # legacy-mapping strategy is enabled. With Path B (Cloudflare → Cloud Run
+  # default URL), this resource isn't needed and would fail without
+  # Search Console verification.
+  count = (var.custom_domain == null || !var.use_cloud_run_domain_mapping) ? 0 : 1
 
   project  = var.project
   location = var.region

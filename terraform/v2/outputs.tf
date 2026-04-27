@@ -40,3 +40,8 @@ output "run_build_trigger_command" {
   description = "Convenience: kick the build trigger to push a real image."
   value       = "gcloud builds triggers run ${google_cloudbuild_trigger.netcidr.name} --branch=${var.deploy_repo_branch} --region=${var.region} --project=${var.project}"
 }
+
+output "cloudflare_record_hostname" {
+  description = "FQDN of the Cloudflare-managed DNS record (or null if Cloudflare DNS is not configured)."
+  value       = length(cloudflare_record.netcidr_v2) == 0 ? null : cloudflare_record.netcidr_v2[0].hostname
+}

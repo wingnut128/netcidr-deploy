@@ -6,7 +6,7 @@ for `infra/v2/` (Pulumi).
 **Owns:** Cloud Run service shell, Cloud SQL Postgres (private IP), Secret
 Manager secret + version, Artifact Registry repo, runtime + build service
 accounts, IAM bindings, VPC peering for Cloud SQL, Cloud Build trigger,
-optional custom domain mapping.
+optional custom domain mapping, optional Cloudflare DNS record.
 
 **Does not own:** the Cloud Run container image. The Cloud Build trigger
 (`cloudbuild-v2.yaml`) clones upstream netcidr, builds it, pushes to Artifact
@@ -72,6 +72,61 @@ terraform {
   }
 }
 ```
+
+## Cloudflare DNS + custom domain (optional)
+
+Two strategies — pick one with `var.use_cloud_run_domain_mapping`:
+
+### Path B (default) — Cloudflare → Cloud Run default URL
+
+`use_cloud_run_domain_mapping = false` (the default) makes the
+Cloudflare CNAME point directly at the Cloud Run service's own
+`*.run.app` URL. No GCP-side domain mapping, no Search Console
+verification, no DNS-record dance. Cloudflare's orange-cloud proxy
+terminates TLS at the edge and proxies to Cloud Run; Cloud Run accepts
+any Host header on its default URL.
+
+Requirements:
+- `cloudflare_zone_id` and `cloudflare_api_token` (token scoped
+  `Zone:DNS:Edit` on the target zone).
+- `cloudflare_proxied = true` (default). Without the proxy, the browser
+  hits the run.app TLS cert directly and rejects it for the
+  cloudreaper.dev hostname.
+
+### Path A — Cloud Run legacy domain mapping
+
+`use_cloud_run_domain_mapping = true` plus `custom_domain = "..."`
+creates a `google_cloud_run_domain_mapping` resource and points
+Cloudflare at `ghs.googlehosted.com`. GCP issues an automatic TLS cert
+for the custom hostname.
+
+Requirements:
+- All the Cloudflare bits above.
+- The caller (Spacelift's impersonated SA) must be a verified owner of
+  the domain in Google Search Console:
+  1. https://search.google.com/search-console — sign in as the human
+     account that owns the zone.
+  2. Add property → **Domain** type → enter `<your-zone>` (e.g.
+     `cloudreaper.dev`).
+  3. Verify via DNS TXT — Cloudflare DNS → add the
+     `google-site-verification=...` TXT record at the apex.
+  4. Search Console → Settings → Users and permissions → Add user →
+     paste the SA email (`spacelift-deployer@<project>...`) → Owner.
+
+Path B is faster to set up; Path A is the canonical GCP route. They're
+otherwise equivalent for end users — both serve `https://<host>` via
+Cloudflare's edge.
+
+### Common Cloudflare setup
+
+1. Cloudflare dashboard → your zone → "API tokens" (zone-level) → create a
+   token with `Zone:DNS:Edit` scoped to just the target zone.
+2. In Spacelift stack environment, add:
+   - `TF_VAR_cloudflare_api_token` (**Secret**)
+   - `TF_VAR_cloudflare_zone_id` (plain) — from the zone's overview page.
+3. (Path A only) Set `TF_VAR_custom_domain = <your-host>` and
+   `TF_VAR_use_cloud_run_domain_mapping = true`.
+4. Trigger a run.
 
 ## Spacelift onboarding
 

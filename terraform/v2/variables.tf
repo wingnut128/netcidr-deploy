@@ -110,6 +110,40 @@ variable "custom_domain" {
   default     = null
 }
 
+# ── Cloudflare DNS (optional) ──────────────────────────────────────────
+# All four are no-ops when cloudflare_zone_id is empty.
+
+variable "cloudflare_api_token" {
+  description = "Cloudflare API token with Zone:DNS:Edit on the target zone. Set as a SECRET in Spacelift, not plain."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "cloudflare_zone_id" {
+  description = "Cloudflare zone ID (e.g., the zone for cloudreaper.dev). Empty = skip Cloudflare DNS management."
+  type        = string
+  default     = ""
+}
+
+variable "cloudflare_subdomain" {
+  description = "Subdomain (relative to the zone) to point at Cloud Run. Combined with the zone to form the FQDN — e.g., 'netcidr-v2' on cloudreaper.dev → netcidr-v2.cloudreaper.dev."
+  type        = string
+  default     = "netcidr-v2"
+}
+
+variable "cloudflare_proxied" {
+  description = "Enable the Cloudflare orange-cloud proxy for the DNS record."
+  type        = bool
+  default     = true
+}
+
+variable "use_cloud_run_domain_mapping" {
+  description = "When true, Cloudflare CNAME points at ghs.googlehosted.com and a Cloud Run legacy domain mapping is created (var.custom_domain). Requires Search Console verification of the domain by the caller. When false (default), Cloudflare CNAME points directly at the Cloud Run service's default URL — no GCP domain mapping, no Search Console verification needed. Cloudflare proxy must be enabled in the false case."
+  type        = bool
+  default     = false
+}
+
 variable "deploy_repo_connection" {
   description = "Cloud Build GitHub connection name (in the deploy region)."
   type        = string
