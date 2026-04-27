@@ -14,6 +14,7 @@ cb_connection := "github-connection"
 cb_repo := "netcidr-deploy"
 autobuild_trigger := "netcidr-weekly-rebuild"
 v2_trigger := "netcidr-v2-manual"
+v2_pulumi_dir := "infra/v2"
 autobuild_schedule := "0 9 * * 1"
 autobuild_tz := "America/New_York"
 # Opt-in flags — see .env.example. Set in .env to enable.
@@ -130,6 +131,22 @@ deploy-features features with_dashboard="true":
 deploy-v2:
     gcloud builds submit --config=cloudbuild.yaml --no-source --region={{region}} \
         --substitutions=_NETCIDR_REF={{v2_ref}},_IMAGE_NAME={{v2_image}},_SERVICE_NAME={{v2_service}},_ALLOW_PUBLIC_BIND=true
+
+# Install Pulumi TypeScript dependencies for the v2 stack
+pulumi-v2-install:
+    cd {{v2_pulumi_dir}} && npm install
+
+# Type-check the Pulumi TypeScript v2 stack
+pulumi-v2-check:
+    cd {{v2_pulumi_dir}} && npm run build
+
+# Preview the Pulumi TypeScript v2 stack
+pulumi-v2-preview:
+    cd {{v2_pulumi_dir}} && pulumi preview
+
+# Apply the Pulumi TypeScript v2 stack
+pulumi-v2-up:
+    cd {{v2_pulumi_dir}} && pulumi up
 
 # Deploy the Slack notifier Cloud Function (Pub/Sub trigger on cloud-builds topic)
 deploy-notifier: _require-notifier

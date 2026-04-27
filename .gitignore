@@ -81,6 +81,11 @@ Thumbs.db
 .idea/
 .vscode/
 
+# ── Pulumi / Node local state ───────────────────────────
+infra/v2/node_modules/
+infra/v2/Pulumi.*.yaml
+!infra/v2/Pulumi.yaml
+
 # ── Local AI tooling state ──────────────────────────────
 .claude/settings.local.json
 .serena/
