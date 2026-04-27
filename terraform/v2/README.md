@@ -6,7 +6,7 @@ for `infra/v2/` (Pulumi).
 **Owns:** Cloud Run service shell, Cloud SQL Postgres (private IP), Secret
 Manager secret + version, Artifact Registry repo, runtime + build service
 accounts, IAM bindings, VPC peering for Cloud SQL, Cloud Build trigger,
-optional custom domain mapping.
+optional custom domain mapping, optional Cloudflare DNS record.
 
 **Does not own:** the Cloud Run container image. The Cloud Build trigger
 (`cloudbuild-v2.yaml`) clones upstream netcidr, builds it, pushes to Artifact
@@ -72,6 +72,29 @@ terraform {
   }
 }
 ```
+
+## Cloudflare DNS (optional)
+
+Setting `cloudflare_zone_id` (and `cloudflare_api_token`) creates a CNAME
+in Cloudflare that points `<cloudflare_subdomain>.<zone>` (default
+`netcidr-v2.<zone>`) at `ghs.googlehosted.com`, with the orange-cloud
+proxy on by default. Leave the zone ID empty to skip — the resource is
+guarded by `count = var.cloudflare_zone_id == "" ? 0 : 1`.
+
+To wire it up:
+
+1. Cloudflare dashboard → your zone → "API tokens" (zone-level) → create a
+   token with `Zone:DNS:Edit` scoped to just the target zone.
+2. In Spacelift stack environment, add (as **secret**, not plain):
+   ```
+   TF_VAR_cloudflare_api_token = <token>
+   TF_VAR_cloudflare_zone_id = <zone-id-from-zone-overview-page>
+   ```
+3. Trigger a run; Terraform creates the CNAME.
+
+The CNAME plus the Cloud Run domain mapping (`var.custom_domain`) are
+the two pieces needed end-to-end. They're independent in this stack —
+you can set either without the other if you're staging the cutover.
 
 ## Spacelift onboarding
 

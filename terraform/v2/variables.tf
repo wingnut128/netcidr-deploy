@@ -110,6 +110,34 @@ variable "custom_domain" {
   default     = null
 }
 
+# ── Cloudflare DNS (optional) ──────────────────────────────────────────
+# All four are no-ops when cloudflare_zone_id is empty.
+
+variable "cloudflare_api_token" {
+  description = "Cloudflare API token with Zone:DNS:Edit on the target zone. Set as a SECRET in Spacelift, not plain."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "cloudflare_zone_id" {
+  description = "Cloudflare zone ID (e.g., the zone for cloudreaper.dev). Empty = skip Cloudflare DNS management."
+  type        = string
+  default     = ""
+}
+
+variable "cloudflare_subdomain" {
+  description = "Subdomain (relative to the zone) to point at Cloud Run. Combined with the zone to form the FQDN — e.g., 'netcidr-v2' on cloudreaper.dev → netcidr-v2.cloudreaper.dev."
+  type        = string
+  default     = "netcidr-v2"
+}
+
+variable "cloudflare_proxied" {
+  description = "Enable the Cloudflare orange-cloud proxy for the DNS record."
+  type        = bool
+  default     = true
+}
+
 variable "deploy_repo_connection" {
   description = "Cloud Build GitHub connection name (in the deploy region)."
   type        = string

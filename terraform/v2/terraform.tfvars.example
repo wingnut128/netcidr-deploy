@@ -17,3 +17,11 @@ oauth_web_client_id = "REPLACE-WITH-YOUR-CLIENT-ID.apps.googleusercontent.com"
 
 # Optional: map a custom domain.
 # custom_domain = "netcidr-v2.cloudreaper.dev"
+
+# Optional: Cloudflare DNS management. Set the zone ID and an API token
+# scoped Zone:DNS:Edit on the target zone. Leaving cloudflare_zone_id empty
+# (or unset) skips Cloudflare entirely — the CNAME stays manual.
+# cloudflare_zone_id   = "REPLACE-WITH-ZONE-ID"
+# cloudflare_subdomain = "netcidr-v2"
+# cloudflare_proxied   = true
+# cloudflare_api_token = "REPLACE-WITH-TOKEN"   # set as a SECRET in Spacelift, never in this file
