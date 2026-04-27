@@ -242,6 +242,12 @@ new gcp.projects.IAMMember("netcidr-v2-build-run-admin", {
   member: buildMember,
 });
 
+new gcp.projects.IAMMember("netcidr-v2-build-logs-writer", {
+  project,
+  role: "roles/logging.logWriter",
+  member: buildMember,
+});
+
 new gcp.serviceaccount.IAMMember("netcidr-v2-build-act-as-runtime", {
   serviceAccountId: runtimeSa.name,
   role: "roles/iam.serviceAccountUser",
