@@ -51,6 +51,8 @@ const requiredApis = [
   "iam.googleapis.com",
   "cloudresourcemanager.googleapis.com",
   "orgpolicy.googleapis.com",
+  "servicenetworking.googleapis.com",
+  "compute.googleapis.com",
 ];
 
 const services = requiredApis.map(
@@ -134,6 +136,35 @@ const dbPassword = new random.RandomPassword("netcidr-v2-db-password", {
   special: false,
 });
 
+const vpcNetworkName = config.get("vpcNetwork") ?? "default";
+const vpcNetwork = pulumi.output(
+  gcp.compute.getNetwork({ project, name: vpcNetworkName }),
+);
+
+const sqlPrivateRange = new gcp.compute.GlobalAddress(
+  "netcidr-v2-sql-private-range",
+  {
+    project,
+    name: "netcidr-v2-sql-private-range",
+    purpose: "VPC_PEERING",
+    addressType: "INTERNAL",
+    prefixLength: 16,
+    network: vpcNetwork.id,
+    labels,
+  },
+  { dependsOn: services },
+);
+
+const sqlPrivateConnection = new gcp.servicenetworking.Connection(
+  "netcidr-v2-sql-private-connection",
+  {
+    network: vpcNetwork.id,
+    service: "servicenetworking.googleapis.com",
+    reservedPeeringRanges: [sqlPrivateRange.name],
+  },
+  { dependsOn: services },
+);
+
 const sqlInstance = new gcp.sql.DatabaseInstance(
   "netcidr-v2-postgres",
   {
@@ -154,12 +185,17 @@ const sqlInstance = new gcp.sql.DatabaseInstance(
         startTime: "09:00",
       },
       ipConfiguration: {
-        ipv4Enabled: true,
+        ipv4Enabled: false,
+        privateNetwork: vpcNetwork.id,
+        sslMode: "ENCRYPTED_ONLY",
       },
       userLabels: labels,
     },
   },
-  { dependsOn: services, protect: deletionProtection },
+  {
+    dependsOn: [...services, sqlPrivateConnection],
+    protect: deletionProtection,
+  },
 );
 
 const database = new gcp.sql.Database("netcidr-v2-db", {
