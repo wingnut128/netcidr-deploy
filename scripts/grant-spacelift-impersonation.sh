@@ -31,6 +31,20 @@ if [[ "$SPACELIFT_GCP_SA" == "REPLACE-ME" ]]; then
   exit 1
 fi
 
+# Shape check: must look like an email ending in
+# -spacelift.iam.gserviceaccount.com. Also catches the most common
+# copy/paste mistake — pasting a literal Unicode ellipsis (…) from chat
+# rather than the full SA email — because non-ASCII chars don't match the
+# allowed local-part character class.
+if [[ ! "$SPACELIFT_GCP_SA" =~ ^[A-Za-z0-9._-]+@[a-z0-9-]+-spacelift\.iam\.gserviceaccount\.com$ ]]; then
+  echo "ERROR: SPACELIFT_GCP_SA does not look like a Spacelift-managed SA email." >&2
+  echo "       Expected format: gcp-XXXX@<region>-spacelift.iam.gserviceaccount.com" >&2
+  echo "       Got:             $SPACELIFT_GCP_SA" >&2
+  echo "       Tip: copy the full email from Spacelift; don't abbreviate" >&2
+  echo "            with '…' or '...'." >&2
+  exit 1
+fi
+
 echo "Project:                       $PROJECT_ID"
 echo "Deployer SA (impersonated):    $DEPLOYER_SA"
 echo "Spacelift SA (impersonating):  $SPACELIFT_GCP_SA"
