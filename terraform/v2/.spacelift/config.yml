@@ -1,0 +1,14 @@
+# Stack-local Spacelift hooks. Anything project-wide (workspace variables,
+# integrations, policies) is configured in the Spacelift UI/API, not here.
+
+# Run `terraform fmt -check` before plan so misformatted commits fail fast.
+before_plan:
+  - terraform fmt -check -recursive
+
+# Workflow notes:
+# - State is managed by Spacelift (no `backend` block in main.tf).
+# - Set `oauth_web_client_id`, `allowed_emails`, `enable_public_invoker`,
+#   `custom_domain` as Spacelift environment variables on the stack
+#   (TF_VAR_<name>) or as a `terraform.tfvars` mounted file.
+# - Bind a GCP cloud integration to the stack so Spacelift workers
+#   authenticate via Workload Identity Federation rather than a static key.

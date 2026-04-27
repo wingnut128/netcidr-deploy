@@ -1,0 +1,19 @@
+# Copy to terraform.tfvars and fill in the values that apply.
+
+project = "tasker-487819"
+region  = "us-central1"
+
+# Required: Google OAuth 2.0 Web Client ID. The application validates ID
+# tokens against this audience for /ipam/* requests.
+oauth_web_client_id = "REPLACE-WITH-YOUR-CLIENT-ID.apps.googleusercontent.com"
+
+# Optional but recommended: gate /ipam/* by email.
+# allowed_emails = ["you@gmail.com"]
+
+# Set to true once you're ready to expose the service to Cloudflare / the
+# public internet. App-layer auth still gates /ipam/*; calc/visualizer remain
+# public on purpose.
+# enable_public_invoker = true
+
+# Optional: map a custom domain.
+# custom_domain = "netcidr-v2.cloudreaper.dev"
