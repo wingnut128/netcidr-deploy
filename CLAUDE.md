@@ -66,7 +66,7 @@ Pass via `--substitutions=_FEATURES=...,_WITH_DASHBOARD=...` on `gcloud builds s
 | `_AR_REPO` | `netcidr-repo` | Artifact Registry repo name |
 | `_IMAGE_NAME` | `netcidr` | Artifact Registry image name |
 | `_SERVICE_NAME` | `netcidr` | Cloud Run service name |
-| `_ALLOW_PUBLIC_BIND` | `false` | Append `allow_public_bind=true` to the Cloud Run startup args |
+| `_ALLOW_PUBLIC_BIND` | `false` | Inject a Cloud Run TOML config that allows public bind and Swagger startup |
 | `_NETCIDR_REF` | pinned commit | Upstream git tag/branch/commit to build |
 | `_FEATURES` | `default` | Cargo features passed to Rust build |
 | `_WITH_DASHBOARD` | `true` | Build React dashboard SPA |
