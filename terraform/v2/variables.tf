@@ -138,6 +138,12 @@ variable "cloudflare_proxied" {
   default     = true
 }
 
+variable "use_cloud_run_domain_mapping" {
+  description = "When true, Cloudflare CNAME points at ghs.googlehosted.com and a Cloud Run legacy domain mapping is created (var.custom_domain). Requires Search Console verification of the domain by the caller. When false (default), Cloudflare CNAME points directly at the Cloud Run service's default URL — no GCP domain mapping, no Search Console verification needed. Cloudflare proxy must be enabled in the false case."
+  type        = bool
+  default     = false
+}
+
 variable "deploy_repo_connection" {
   description = "Cloud Build GitHub connection name (in the deploy region)."
   type        = string
