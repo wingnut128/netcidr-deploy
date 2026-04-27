@@ -293,6 +293,28 @@ new gcp.serviceaccount.IAMMember("netcidr-v2-build-act-as-runtime", {
 const targetImage = pulumi.interpolate`${region}-docker.pkg.dev/${project}/${names.artifactRepo}/${names.imageName}:latest`;
 const oidcAudienceValue = pulumi.interpolate`/projects/${projectNumber}/locations/${region}/services/${names.service}`;
 
+// Preserve the image currently deployed by Cloud Build instead of rolling the
+// service back to the bootstrap image on every `pulumi up`. On the first apply
+// (service does not exist yet) this falls back to the bootstrap image.
+async function lookupDeployedImage(): Promise<string> {
+  try {
+    const existing = await gcp.cloudrunv2.getService({
+      project,
+      location: region,
+      name: names.service,
+    });
+    const deployed = existing.templates?.[0]?.containers?.[0]?.image;
+    if (deployed && deployed.length > 0) {
+      return deployed;
+    }
+  } catch {
+    // Service does not exist yet — first apply.
+  }
+  return bootstrapImage;
+}
+
+const containerImage = pulumi.output(lookupDeployedImage());
+
 const cloudRunService = new gcp.cloudrunv2.Service(
   "netcidr-v2-service",
   {
@@ -322,7 +344,7 @@ const cloudRunService = new gcp.cloudrunv2.Service(
       ],
       containers: [
         {
-          image: bootstrapImage,
+          image: containerImage,
           args: ["serve", "--address", "0.0.0.0", "--port", "8080", "--config", "/app/netcidr.toml"],
           ports: {
             containerPort: 8080,
@@ -365,7 +387,6 @@ const cloudRunService = new gcp.cloudrunv2.Service(
   },
   {
     dependsOn: [database, dbUser],
-    ignoreChanges: ["template.containers[0].image"],
     protect: deletionProtection,
   },
 );
