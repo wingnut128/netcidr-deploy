@@ -54,11 +54,12 @@ just doctor
 #    samconfig.toml under DatabaseUrl.
 
 # 5. Deploy
-just deploy-guided    # first time — writes deployment defaults
-just cloudflare-sync  # point your Cloudflare CNAME at the Function URL
+just deploy-guided          # first time — writes deployment defaults
+just cloudflare-sync        # point your Cloudflare CNAME at CloudFront
+just cloudflare-host-rule   # rewrite Host header so CloudFront accepts the proxied request
 ```
 
-After that, `just ship` rebuilds + redeploys + syncs DNS in one shot.
+After that, `just ship` rebuilds + redeploys + syncs DNS + reapplies the Host rule in one shot.
 
 ## What's where
 

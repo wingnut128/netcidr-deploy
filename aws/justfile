@@ -92,12 +92,17 @@ clean-config:
     @rm -f samconfig.toml
     @echo "✓ Removed samconfig.toml (template at samconfig.toml.tpl is preserved)."
 
-# Sync the Cloudflare CNAME to the current Function URL.
+# Sync the Cloudflare CNAME to the current CloudFront distribution.
 cloudflare-sync:
     @bash cloudflare/update-dns.sh
 
-# Build, deploy AWS, then point Cloudflare at it.
-ship: deploy cloudflare-sync
+# Upsert the Cloudflare Transform Rule that rewrites Host → CloudFront
+# origin so CloudFront accepts the proxied request.
+cloudflare-host-rule:
+    @bash cloudflare/host-rule.sh
+
+# Build, deploy AWS, point Cloudflare DNS at it, and apply the Host rule.
+ship: deploy cloudflare-sync cloudflare-host-rule
 
 # ─────────────────────────── Operate ───────────────────────────
 
