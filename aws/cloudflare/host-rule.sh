@@ -91,19 +91,28 @@ RULE_BODY=$(jq -n \
     enabled: true
   }')
 
-# 6. Upsert.
+# 6. Upsert. Show the API's error body on failure instead of hiding it.
 if [[ -n "$EXISTING_ID" ]]; then
   echo "→ Updating existing rule $EXISTING_ID — Host[$FQDN] := $CF_DOMAIN"
-  curl -fsS -X PATCH "${AUTH[@]}" \
+  RESPONSE=$(curl -sS -w '\n%{http_code}' -X PATCH "${AUTH[@]}" \
     "$CF/zones/$CLOUDFLARE_ZONE_ID/rulesets/$RULESET_ID/rules/$EXISTING_ID" \
-    --data "$RULE_BODY" \
-    | jq -e '.success' >/dev/null
+    --data "$RULE_BODY")
 else
   echo "→ Creating rule — Host[$FQDN] := $CF_DOMAIN"
-  curl -fsS -X POST "${AUTH[@]}" \
+  RESPONSE=$(curl -sS -w '\n%{http_code}' -X POST "${AUTH[@]}" \
     "$CF/zones/$CLOUDFLARE_ZONE_ID/rulesets/$RULESET_ID/rules" \
-    --data "$RULE_BODY" \
-    | jq -e '.success' >/dev/null
+    --data "$RULE_BODY")
+fi
+
+STATUS=$(tail -n1 <<<"$RESPONSE")
+BODY=$(sed '$d' <<<"$RESPONSE")
+
+if [[ "$STATUS" != "200" ]] || [[ "$(jq -r '.success' <<<"$BODY")" != "true" ]]; then
+  echo "✗ Cloudflare API rejected the request (HTTP $STATUS):" >&2
+  echo "$BODY" | jq . >&2 || echo "$BODY" >&2
+  echo "--- request body that was sent ---" >&2
+  echo "$RULE_BODY" | jq . >&2
+  exit 1
 fi
 
 echo "✓ Transform Rule applied. Test: curl -sS https://$FQDN/health"
