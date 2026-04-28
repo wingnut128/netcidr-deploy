@@ -18,6 +18,7 @@ parameter_overrides = """\
   DatabaseUrl=\"postgres://USER:PASS@HOST/netcidr?sslmode=require\" \
   OidcAudience=\"YOUR-WEB-CLIENT-ID.apps.googleusercontent.com\" \
   OidcAllowedEmails=\"you@example.com\" \
+  AdminEmails=\"you@example.com\" \
   PublicHostname=\"netcidr.example.com\" \
   CertificateArn=\"arn:aws:acm:us-east-1:111111111111:certificate/...\"\
 """
