@@ -17,7 +17,11 @@ default:
 install-tools:
     @echo "→ Installing cargo-lambda…"
     @if ! command -v cargo-lambda >/dev/null; then \
-        brew install cargo-lambda; \
+        if command -v cargo-binstall >/dev/null; then \
+            cargo binstall -y cargo-lambda; \
+        else \
+            cargo install cargo-lambda; \
+        fi; \
     else echo "  already installed."; fi
     @echo "→ Installing AWS SAM CLI…"
     @if ! command -v sam >/dev/null; then \
