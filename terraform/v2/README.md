@@ -83,15 +83,26 @@ Two strategies — pick one with `var.use_cloud_run_domain_mapping`:
 Cloudflare CNAME point directly at the Cloud Run service's own
 `*.run.app` URL. No GCP-side domain mapping, no Search Console
 verification, no DNS-record dance. Cloudflare's orange-cloud proxy
-terminates TLS at the edge and proxies to Cloud Run; Cloud Run accepts
-any Host header on its default URL.
+terminates TLS at the edge and proxies to Cloud Run.
+
+Cloud Run's frontend routes by Host header / SNI — without intervention
+it would see `Host: netcidr-v2.cloudreaper.dev`, find no matching
+service, and return 404. To fix this the stack also creates a
+`cloudflare_ruleset` (`http_request_origin` phase) that rewrites both
+the Host header and the TLS SNI to the run.app hostname before
+forwarding.
 
 Requirements:
 - `cloudflare_zone_id` and `cloudflare_api_token` (token scoped
   `Zone:DNS:Edit` on the target zone).
-- `cloudflare_proxied = true` (default). Without the proxy, the browser
-  hits the run.app TLS cert directly and rejects it for the
-  cloudreaper.dev hostname.
+- The same token also needs `Zone:Zone:Read` and
+  `Zone:Config Rules:Edit` (or the v1 equivalent — Cloudflare often
+  bundles all zone-write under one token; if you hit a 403 on the
+  ruleset, broaden the token's permissions).
+- `cloudflare_proxied = true` (default). Without the proxy, the
+  browser hits the run.app TLS cert directly and rejects it for the
+  cloudreaper.dev hostname; also the rewrite ruleset only fires for
+  proxied requests.
 
 ### Path A — Cloud Run legacy domain mapping
 
