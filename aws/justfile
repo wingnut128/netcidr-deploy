@@ -15,6 +15,10 @@ default:
 
 # One-time install of cargo-lambda + SAM CLI (macOS via brew).
 install-tools:
+    @echo "→ Installing zig (cross-compile linker for cargo-lambda)…"
+    @if ! command -v zig >/dev/null; then \
+        brew install zig; \
+    else echo "  already installed."; fi
     @echo "→ Installing cargo-lambda…"
     @if ! command -v cargo-lambda >/dev/null; then \
         if command -v cargo-binstall >/dev/null; then \
@@ -34,6 +38,7 @@ doctor:
     @command -v aws >/dev/null     || { echo "✗ aws CLI missing"; exit 1; }
     @command -v sam >/dev/null     || { echo "✗ sam CLI missing — run 'just install-tools'"; exit 1; }
     @command -v cargo-lambda >/dev/null || { echo "✗ cargo-lambda missing — run 'just install-tools'"; exit 1; }
+    @command -v zig >/dev/null         || { echo "✗ zig missing (cargo-lambda cross-compile linker) — run 'just install-tools'"; exit 1; }
     @command -v jq >/dev/null      || { echo "✗ jq missing"; exit 1; }
     @aws sts get-caller-identity --output text >/dev/null || { echo "✗ AWS creds not configured"; exit 1; }
     @test -f samconfig.toml || { echo "✗ samconfig.toml missing — copy from samconfig.toml.example"; exit 1; }
