@@ -85,8 +85,9 @@ Resources:
   # CloudFront accepts any SNI on its default cert and rewrites the Host
   # header to the origin's actual hostname before forwarding to Lambda.
   #
-  # Cost: CloudFront has 1 TB free egress and 10M req/mo for 12 months.
-  # After that, ~$0.085/GB out — pennies at this traffic level.
+  # Cost: CloudFront's always-free tier (no 12-month cliff) covers 1 TB
+  # egress + 10M requests/mo + 2M function invocations/mo. Personal-tool
+  # traffic will never come close.
   NetcidrCloudFront:
     Type: AWS::CloudFront::Distribution
     Properties:

@@ -18,7 +18,7 @@ native, no Worker.
 | Layer | Service | Free? |
 |---|---|---|
 | Compute | Lambda + Function URL | 1M req/mo + 400k GB-s/mo, indefinitely |
-| CDN/edge AWS-side | CloudFront | 1 TB out + 10M req/mo for 12 months, then ~$0.085/GB out |
+| CDN/edge AWS-side | CloudFront | 1 TB out + 10M req/mo, **always free** (not the 12-month tier) |
 | Database | [Neon](https://neon.tech) Postgres | 0.5 GB tier, indefinitely |
 | Edge proxy | Cloudflare (free plan, proxy on) | yes |
 | TLS (user-facing) | Cloudflare-issued | yes |
