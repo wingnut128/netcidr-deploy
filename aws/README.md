@@ -29,6 +29,14 @@ just install-tools
 cp samconfig.toml.example samconfig.toml      # AWS deploy params
 cp .env.example .env                          # Cloudflare token, zone, etc.
 
+# Or, if you keep secrets in 1Password (recommended):
+#   - Save your config to samconfig.toml.tpl with `op://Vault/Item/field`
+#     references in place of literal values.
+#   - `just deploy` renders the .tpl via `op inject` before deploying and
+#     removes the rendered samconfig.toml afterward (even on failure).
+#   - For .env, run with `op run --env-file=.env -- just <recipe>` so
+#     CLOUDFLARE_API_TOKEN etc. are injected at invocation time.
+
 # 3. Verify environment
 just doctor
 

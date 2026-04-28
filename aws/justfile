@@ -60,12 +60,32 @@ validate:
     sam validate --lint
 
 # `sam deploy` using values from samconfig.toml.
+#
+# If samconfig.toml.tpl exists, render it via `op inject` first (1Password
+# CLI), deploy, then delete the rendered samconfig.toml on exit — even if
+# the deploy fails. The plaintext file never sticks around.
 deploy: build validate
-    sam deploy --region {{region}}
+    @if [ -f samconfig.toml.tpl ]; then \
+        echo "→ Rendering samconfig.toml from .tpl via op inject…"; \
+        trap 'rm -f samconfig.toml' EXIT; \
+        op inject -i samconfig.toml.tpl -o samconfig.toml -f; \
+        sam deploy --region {{region}}; \
+    else \
+        sam deploy --region {{region}}; \
+    fi
 
 # First-time guided deploy (writes/updates samconfig.toml interactively).
+# This bypasses the .tpl flow on purpose so the resulting file stays on
+# disk for review/edit before being copied into a .tpl.
 deploy-guided: build validate
     sam deploy --guided --region {{region}}
+
+# Remove a rendered samconfig.toml. Safe to run any time; no-op if the
+# file already doesn't exist. Useful if `just deploy` was interrupted in
+# a way the trap missed.
+clean-config:
+    @rm -f samconfig.toml
+    @echo "✓ Removed samconfig.toml (template at samconfig.toml.tpl is preserved)."
 
 # Sync the Cloudflare CNAME to the current Function URL.
 cloudflare-sync:
