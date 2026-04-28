@@ -86,6 +86,10 @@ infra/v2/node_modules/
 infra/v2/Pulumi.*.yaml
 !infra/v2/Pulumi.yaml
 
+# ── AWS SAM ─────────────────────────────────────────────
+aws/samconfig.toml
+aws/.aws-sam/
+
 # ── Local AI tooling state ──────────────────────────────
 .claude/settings.local.json
 .serena/

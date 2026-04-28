@@ -1,0 +1,102 @@
+set shell := ["bash", "-euo", "pipefail", "-c"]
+set dotenv-load := true
+
+# Path to the netcidr source repo (the Rust project). Override with
+# NETCIDR_DIR=… if your checkout lives elsewhere.
+netcidr_dir := env_var_or_default("NETCIDR_DIR", "../../netcidr")
+stack := env_var_or_default("SAM_STACK_NAME", "netcidr")
+region := env_var_or_default("AWS_REGION", "us-east-1")
+
+# List recipes
+default:
+    @just --list
+
+# ─────────────────────────── Prereqs ───────────────────────────
+
+# One-time install of cargo-lambda + SAM CLI (macOS via brew).
+install-tools:
+    @echo "→ Installing cargo-lambda…"
+    @if ! command -v cargo-lambda >/dev/null; then \
+        brew install cargo-lambda; \
+    else echo "  already installed."; fi
+    @echo "→ Installing AWS SAM CLI…"
+    @if ! command -v sam >/dev/null; then \
+        brew install aws-sam-cli; \
+    else echo "  already installed."; fi
+    @echo "✓ Prereqs ready."
+
+# Sanity-check that the local environment is wired (.env, AWS creds, tools).
+doctor:
+    @command -v aws >/dev/null     || { echo "✗ aws CLI missing"; exit 1; }
+    @command -v sam >/dev/null     || { echo "✗ sam CLI missing — run 'just install-tools'"; exit 1; }
+    @command -v cargo-lambda >/dev/null || { echo "✗ cargo-lambda missing — run 'just install-tools'"; exit 1; }
+    @command -v jq >/dev/null      || { echo "✗ jq missing"; exit 1; }
+    @aws sts get-caller-identity --output text >/dev/null || { echo "✗ AWS creds not configured"; exit 1; }
+    @test -f samconfig.toml || { echo "✗ samconfig.toml missing — copy from samconfig.toml.example"; exit 1; }
+    @test -f .env           || { echo "⚠ .env missing — Cloudflare sync will fail. Copy from .env.example."; }
+    @test -d "{{netcidr_dir}}" || { echo "✗ NETCIDR_DIR ({{netcidr_dir}}) does not exist"; exit 1; }
+    @echo "✓ All prereqs look good."
+
+# ─────────────────────────── Build ─────────────────────────────
+
+# Build the Lambda binary (arm64 musl) from the netcidr source repo.
+# Produces target/lambda/lambda/bootstrap which template.yaml's CodeUri
+# points at.
+build:
+    @echo "→ Building netcidr Lambda binary (arm64)…"
+    cd {{netcidr_dir}} && \
+        cargo lambda build --release --arm64 \
+            --bin lambda --features lambda,ipam-postgres
+    @ls -lh {{netcidr_dir}}/target/lambda/lambda/bootstrap
+
+# ─────────────────────────── Deploy ────────────────────────────
+
+# Validate the SAM template.
+validate:
+    sam validate --lint
+
+# `sam deploy` using values from samconfig.toml.
+deploy: build validate
+    sam deploy --region {{region}}
+
+# First-time guided deploy (writes/updates samconfig.toml interactively).
+deploy-guided: build validate
+    sam deploy --guided --region {{region}}
+
+# Sync the Cloudflare CNAME to the current Function URL.
+cloudflare-sync:
+    @bash cloudflare/update-dns.sh
+
+# Build, deploy AWS, then point Cloudflare at it.
+ship: deploy cloudflare-sync
+
+# ─────────────────────────── Operate ───────────────────────────
+
+# Print the Function URL (raw — no Cloudflare hostname).
+url:
+    @aws cloudformation describe-stacks \
+        --stack-name {{stack}} --region {{region}} \
+        --query 'Stacks[0].Outputs[?OutputKey==`FunctionUrl`].OutputValue' \
+        --output text
+
+# Tail recent Lambda logs.
+logs:
+    sam logs --stack-name {{stack}} --region {{region}} --tail
+
+# Tail logs for the last hour, no follow (one-shot for triage).
+logs-recent:
+    sam logs --stack-name {{stack}} --region {{region}} --start-time '1 hour ago'
+
+# Open the CloudFormation stack in the AWS console.
+console:
+    @open "https://{{region}}.console.aws.amazon.com/cloudformation/home?region={{region}}#/stacks/stackinfo?stackId={{stack}}"
+
+# ─────────────────────────── Teardown ──────────────────────────
+
+# Delete the CloudFormation stack (Lambda, Function URL, log group).
+# Cloudflare CNAME is left in place — remove via dashboard if you
+# also want to drop the DNS record.
+destroy:
+    @read -p "Delete stack '{{stack}}' in {{region}}? [y/N] " ans; \
+        [[ "$ans" == "y" || "$ans" == "Y" ]] || { echo "Aborted."; exit 1; }
+    sam delete --stack-name {{stack}} --region {{region}} --no-prompts

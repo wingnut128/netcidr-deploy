@@ -1,0 +1,17 @@
+# Copy to samconfig.toml and fill in. samconfig.toml is gitignored —
+# it's safe to keep secrets here, just don't commit it.
+
+version = 0.1
+
+[default.deploy.parameters]
+stack_name = "netcidr"
+region = "us-east-1"
+resolve_s3 = true
+capabilities = "CAPABILITY_IAM"
+confirm_changeset = true
+fail_on_empty_changeset = false
+parameter_overrides = """\
+  DatabaseUrl=\"postgres://USER:PASS@HOST/netcidr?sslmode=require\" \
+  OidcAudience=\"YOUR-WEB-CLIENT-ID.apps.googleusercontent.com\" \
+  OidcAllowedEmails=\"you@example.com\"\
+"""
