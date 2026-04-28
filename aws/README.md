@@ -2,16 +2,18 @@
 
 Lambda-based deployment for netcidr v2. The whole AWS surface is one
 CloudFormation stack: a Lambda function, its Function URL, a log group,
-and a CloudFront distribution that fronts the Function URL. Cloudflare's
-free proxy points at CloudFront. No API Gateway, no VPC, no NAT Gateway.
+and a CloudFront distribution that serves the public hostname directly.
 
-**Why CloudFront is in the path:** Lambda Function URLs only answer
-requests where TLS SNI matches their own `<id>.lambda-url.<region>.on.aws`
-hostname. Cloudflare's free plan can't rewrite SNI, so a direct
-Cloudflare → Function URL CNAME hits the origin with the wrong SNI and
-gets a generic edge response. CloudFront accepts arbitrary SNI on its
-default cert and rewrites the Host header to the origin's hostname. AWS-
-native, no Worker.
+**Path:** user → Cloudflare DNS (gray cloud, no proxy) → CloudFront →
+Lambda Function URL.
+
+**Why CloudFront and not Cloudflare proxy:** Lambda Function URLs only
+answer requests where TLS SNI matches their own
+`<id>.lambda-url.<region>.on.aws` hostname. Cloudflare's free plan can't
+rewrite Host or SNI, so a Cloudflare → Lambda CNAME 403s. CloudFront
+sits between, terminates TLS for the public hostname using an ACM cert,
+and rewrites Host to the origin before forwarding to Lambda. AWS-native,
+no Worker, no paid Cloudflare features.
 
 **Cost target:** $0/mo.
 
@@ -53,13 +55,16 @@ just doctor
 #    Claude Code). Grab the connection string and paste it into
 #    samconfig.toml under DatabaseUrl.
 
-# 5. Deploy
+# 5. Provision the ACM cert (one-time — auto-validates against Cloudflare DNS)
+op run --env-file=.env -- just cert-bootstrap
+# Paste the printed ARN into samconfig.toml.tpl under CertificateArn.
+
+# 6. Deploy
 just deploy-guided          # first time — writes deployment defaults
-just cloudflare-sync        # point your Cloudflare CNAME at CloudFront
-just cloudflare-host-rule   # rewrite Host header so CloudFront accepts the proxied request
+just cloudflare-sync        # point Cloudflare CNAME (gray cloud) at CloudFront
 ```
 
-After that, `just ship` rebuilds + redeploys + syncs DNS + reapplies the Host rule in one shot.
+After that, `just ship` rebuilds + redeploys + syncs DNS in one shot.
 
 ## What's where
 

@@ -24,6 +24,18 @@ Parameters:
     Default: ""
     Description: |
       Comma-separated email allowlist gating /ipam/*. Empty = no allowlist.
+  PublicHostname:
+    Type: String
+    Description: |
+      The public hostname users hit (e.g. netcidr.cloudreaper.dev). Becomes
+      a CloudFront alias and must be covered by CertificateArn.
+  CertificateArn:
+    Type: String
+    Description: |
+      ARN of an ACM certificate covering PublicHostname. CloudFront requires
+      certs to live in us-east-1 regardless of the stack's region. Use
+      `just cert-bootstrap` to provision and validate one against Cloudflare
+      DNS, then paste the ARN here.
   LogRetentionDays:
     Type: Number
     Default: 14
@@ -119,11 +131,15 @@ Resources:
           # the Host header, so Lambda sees Host = its own URL and routes
           # the request correctly.
           OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac
+        # User-facing TLS terminates here. Cloudflare DNS points
+        # (gray-cloud, no proxy) at this distribution, so the cert must
+        # cover PublicHostname.
+        Aliases:
+          - !Ref PublicHostname
         ViewerCertificate:
-          # CloudFront's default cert covers *.cloudfront.net. Cloudflare
-          # in front terminates TLS for the user's hostname; Cloudflare ↔
-          # CloudFront uses CloudFront's own domain for SNI.
-          CloudFrontDefaultCertificate: true
+          AcmCertificateArn: !Ref CertificateArn
+          SslSupportMethod: sni-only
+          MinimumProtocolVersion: TLSv1.2_2021
 
 Outputs:
   CloudFrontDomain:

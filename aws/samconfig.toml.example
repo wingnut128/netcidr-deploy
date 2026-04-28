@@ -1,11 +1,15 @@
 # Copy to samconfig.toml and fill in. samconfig.toml is gitignored —
 # it's safe to keep secrets here, just don't commit it.
+#
+# If you keep secrets in 1Password, save this as samconfig.toml.tpl
+# instead with `op://...` references in place of literal values, then
+# `just deploy` renders + cleans it up automatically.
 
 version = 0.1
 
 [default.deploy.parameters]
 stack_name = "netcidr"
-region = "us-east-1"
+region = "us-east-2"
 resolve_s3 = true
 capabilities = "CAPABILITY_IAM"
 confirm_changeset = true
@@ -13,5 +17,7 @@ fail_on_empty_changeset = false
 parameter_overrides = """\
   DatabaseUrl=\"postgres://USER:PASS@HOST/netcidr?sslmode=require\" \
   OidcAudience=\"YOUR-WEB-CLIENT-ID.apps.googleusercontent.com\" \
-  OidcAllowedEmails=\"you@example.com\"\
+  OidcAllowedEmails=\"you@example.com\" \
+  PublicHostname=\"netcidr.example.com\" \
+  CertificateArn=\"arn:aws:acm:us-east-1:111111111111:certificate/...\"\
 """

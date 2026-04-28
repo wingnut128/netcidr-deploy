@@ -96,13 +96,13 @@ clean-config:
 cloudflare-sync:
     @bash cloudflare/update-dns.sh
 
-# Upsert the Cloudflare Transform Rule that rewrites Host → CloudFront
-# origin so CloudFront accepts the proxied request.
-cloudflare-host-rule:
-    @bash cloudflare/host-rule.sh
+# One-time: provision an ACM cert for the public hostname and validate
+# it via Cloudflare DNS. Prints the cert ARN to paste into samconfig.
+cert-bootstrap:
+    @bash cloudflare/bootstrap-cert.sh
 
-# Build, deploy AWS, point Cloudflare DNS at it, and apply the Host rule.
-ship: deploy cloudflare-sync cloudflare-host-rule
+# Build, deploy AWS, point Cloudflare DNS at CloudFront.
+ship: deploy cloudflare-sync
 
 # ─────────────────────────── Operate ───────────────────────────
 
