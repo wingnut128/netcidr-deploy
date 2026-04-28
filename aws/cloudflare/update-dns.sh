@@ -2,7 +2,7 @@
 # Sync a Cloudflare CNAME to the current CloudFront distribution.
 #
 # Reads the CloudFront domain from the netcidr CloudFormation stack
-# output and upserts a CNAME at $CLOUDFLARE_RECORD_NAME → <cf-domain>.
+# output and upserts a CNAME at $CLOUDFLARE_RECORD_NAME -> <cf-domain>.
 #
 # Why CloudFront and not the raw Lambda Function URL: Lambda's Function
 # URL rejects any TLS SNI that doesn't match its own hostname, which
@@ -63,7 +63,7 @@ PAYLOAD=$(jq -n \
   '{type: "CNAME", name: $name, content: $content, ttl: 1, proxied: $proxied, comment: "Managed by netcidr-deploy/aws/cloudflare/update-dns.sh"}')
 
 if [[ -n "$EXISTING" ]]; then
-  echo "→ Updating $FQDN → $TARGET_HOST (proxied=$CLOUDFLARE_PROXIED)"
+  echo "-> Updating $FQDN -> $TARGET_HOST (proxied=$CLOUDFLARE_PROXIED)"
   curl -fsS -X PUT \
     -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
     -H "Content-Type: application/json" \
@@ -71,7 +71,7 @@ if [[ -n "$EXISTING" ]]; then
     --data "$PAYLOAD" \
     | jq -e '.success' >/dev/null
 else
-  echo "→ Creating $FQDN → $TARGET_HOST (proxied=$CLOUDFLARE_PROXIED)"
+  echo "-> Creating $FQDN -> $TARGET_HOST (proxied=$CLOUDFLARE_PROXIED)"
   curl -fsS -X POST \
     -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
     -H "Content-Type: application/json" \
@@ -80,4 +80,4 @@ else
     | jq -e '.success' >/dev/null
 fi
 
-echo "✓ $FQDN now resolves to $TARGET_HOST"
+echo "[OK] $FQDN now resolves to $TARGET_HOST"

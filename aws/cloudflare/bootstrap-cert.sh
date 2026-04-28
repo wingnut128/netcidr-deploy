@@ -33,45 +33,65 @@ EXISTING=$(aws acm list-certificates --region "$CERT_REGION" \
 
 if [[ -n "$EXISTING" && "$EXISTING" != "None" ]]; then
   ARN=$(awk '{print $1}' <<<"$EXISTING")
-  echo "✓ Existing ISSUED cert for $FQDN:"
+  echo "[OK] Existing ISSUED cert for $FQDN:"
   echo "    $ARN"
   echo "Paste that into samconfig.toml.tpl as CertificateArn."
   exit 0
 fi
 
 # 2. Request a new cert.
-echo "→ Requesting ACM cert for $FQDN in $CERT_REGION…"
-ARN=$(aws acm request-certificate --region "$CERT_REGION" \
+echo "-> Requesting ACM cert for $FQDN in $CERT_REGION"
+if ! ARN=$(aws acm request-certificate --region "$CERT_REGION" \
   --domain-name "$FQDN" \
   --validation-method DNS \
-  --query CertificateArn --output text)
+  --query CertificateArn --output text 2>&1); then
+  echo "[FAIL] aws acm request-certificate failed:" >&2
+  echo "$ARN" >&2
+  exit 1
+fi
+
+if [[ -z "$ARN" || "$ARN" == "None" || "$ARN" != arn:aws:acm:* ]]; then
+  echo "[FAIL] Did not receive a valid ARN from request-certificate." >&2
+  echo "  Got: '$ARN'" >&2
+  exit 1
+fi
 echo "  $ARN"
 
 # 3. Poll for ACM to surface the validation record.
-echo "→ Waiting for ACM to surface the validation record…"
-for _ in $(seq 1 30); do
-  RECORD=$(aws acm describe-certificate --region "$CERT_REGION" \
-    --certificate-arn "$ARN" \
-    --query 'Certificate.DomainValidationOptions[0].ResourceRecord' \
-    --output json 2>/dev/null || echo '{}')
-  if [[ "$(jq -r '.Name // empty' <<<"$RECORD")" != "" ]]; then
+echo "-> Waiting for ACM to surface the validation record..."
+for attempt in $(seq 1 30); do
+  if ! RECORD=$(aws acm describe-certificate --region "$CERT_REGION" \
+        --certificate-arn "$ARN" \
+        --query 'Certificate.DomainValidationOptions[0].ResourceRecord' \
+        --output json 2>&1); then
+    echo "[FAIL] describe-certificate failed (attempt $attempt):" >&2
+    echo "$RECORD" >&2
+    exit 1
+  fi
+  if [[ "$(jq -r '.Name // empty' <<<"$RECORD" 2>/dev/null)" != "" ]]; then
     break
   fi
   sleep 2
 done
 
-VAL_NAME=$(jq -r '.Name'  <<<"$RECORD")
-VAL_VALUE=$(jq -r '.Value' <<<"$RECORD")
+VAL_NAME=$(jq -r '.Name // empty'  <<<"$RECORD" 2>/dev/null)
+VAL_VALUE=$(jq -r '.Value // empty' <<<"$RECORD" 2>/dev/null)
 VAL_NAME=${VAL_NAME%.}      # strip trailing dot
 VAL_VALUE=${VAL_VALUE%.}
 
 if [[ -z "$VAL_NAME" || -z "$VAL_VALUE" ]]; then
-  echo "✗ ACM never surfaced a validation record. Try again." >&2
+  echo "[FAIL] ACM never surfaced a validation record after 60s. Last response:" >&2
+  echo "$RECORD" | jq . >&2 || echo "$RECORD" >&2
+  echo "" >&2
+  echo "The cert ($ARN) was created but is unvalidated. You can:" >&2
+  echo "  1. Re-run this script (it will reuse the cert and try again)" >&2
+  echo "  2. Or describe it manually:" >&2
+  echo "     aws acm describe-certificate --region $CERT_REGION --certificate-arn $ARN" >&2
   exit 1
 fi
 
-echo "→ Creating Cloudflare CNAME for validation:"
-echo "    $VAL_NAME → $VAL_VALUE"
+echo "-> Creating Cloudflare CNAME for validation:"
+echo "    $VAL_NAME -> $VAL_VALUE"
 
 # 4. Upsert the validation CNAME (gray cloud — must be DNS-only for ACM).
 PAYLOAD=$(jq -n \
@@ -94,9 +114,9 @@ else
 fi
 
 # 5. Wait for ACM to validate.
-echo "→ Waiting for ACM to validate (typically <2 min)…"
+echo "-> Waiting for ACM to validate (typically <2 min)..."
 aws acm wait certificate-validated --region "$CERT_REGION" --certificate-arn "$ARN"
-echo "✓ Cert ISSUED."
+echo "[OK] Cert ISSUED."
 echo ""
 echo "Paste this ARN into samconfig.toml.tpl under CertificateArn:"
 echo "    $ARN"
