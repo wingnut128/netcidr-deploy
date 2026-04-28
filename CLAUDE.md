@@ -4,137 +4,97 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Google Cloud Build pipeline that builds the [netcidr](https://github.com/wingnut128/netcidr.git) subnet calculator from upstream source at a pinned git tag, pushes the image to Artifact Registry, and deploys it to Cloud Run. The whole pipeline lives in `cloudbuild.yaml` — no local Docker build, no IaC framework.
+AWS-based deployment for the [netcidr](https://github.com/wingnut128/netcidr.git) subnet calculator. The whole AWS surface is one CloudFormation stack via SAM:
+
+- **Lambda** (arm64, `provided.al2023`) running the Rust netcidr binary built with the `lambda` feature.
+- **Lambda Function URL** as the origin endpoint.
+- **CloudFront** distribution with the public hostname as an Alias and an ACM cert covering it. CloudFront strips the `Host` header (managed `AllViewerExceptHostHeader` policy) so Lambda sees its own URL as Host and routes correctly.
+- **CloudWatch log group** with explicit retention.
+
+Cloudflare hosts the DNS in **gray-cloud (DNS-only) mode** — no proxy, no Workers, no paid Cloudflare features. Postgres for the IPAM backend lives on **Neon** (free tier, scales-to-zero).
+
+**Cost target:** $0/mo at this traffic level.
+
+## Where the code lives
+
+```
+aws/
+├── template.yaml                  SAM/CloudFormation: Lambda + Function URL + log group + CloudFront
+├── samconfig.toml.example         Stack parameters (DatabaseUrl, OidcAudience, PublicHostname, CertificateArn, …)
+├── .env.example                   Cloudflare token + zone for the DNS sync + cert bootstrap
+├── justfile                       Recipes: install-tools, doctor, build, deploy, ship, cert-bootstrap, destroy
+├── README.md                      First-time setup walkthrough
+└── cloudflare/
+    ├── update-dns.sh              Idempotent CNAME upsert (gray cloud)
+    └── bootstrap-cert.sh          One-time ACM cert request + Cloudflare DNS validation
+```
+
+The Rust Lambda binary lives in the `netcidr` source repo at `src/bin/lambda.rs`, gated behind the `lambda` Cargo feature. `aws/justfile`'s `build` recipe invokes `cargo lambda build` against that crate; the SAM template's `CodeUri` points at the resulting `target/lambda/lambda/bootstrap`.
 
 ## Commands
 
-Use the `justfile` (requires [just](https://github.com/casey/just)):
+All work happens inside `aws/`:
 
 ```bash
-# One-time setup (idempotent): enables APIs, creates AR repo, grants run.admin
-# to the Cloud Build default service account so --allow-unauthenticated sticks.
-just bootstrap
-
-# Build + push + deploy with defaults
-just deploy
-
-# Pin a specific upstream ref (tag, branch, or commit SHA)
-just deploy-ref v0.19.3
-
-# Build + deploy the upstream v2 branch to netcidr-v2
-just deploy-v2
-
-# Custom Cargo features
-just deploy-features swagger false
-
-# Operate
-just url      # print Cloud Run service URL
-just logs     # tail recent logs
-just destroy  # delete the Cloud Run service (prompts)
+cd aws
+just install-tools     # one-time: zig + cargo-lambda + sam CLI
+just doctor            # sanity-check tooling, AWS creds, samconfig.toml, .env
+just cert-bootstrap    # one-time: provision ACM cert, auto-validate via Cloudflare DNS
+just deploy            # build + sam deploy (renders samconfig.toml.tpl via op inject if present)
+just cloudflare-sync   # upsert CNAME pointing at CloudFront (gray cloud)
+just ship              # deploy + cloudflare-sync in one shot
+just url               # print the public URL
+just logs              # tail Lambda logs
+just destroy           # delete the CFN stack (prompts)
 ```
 
-`just bootstrap` reads the active `gcloud config` project — set it first with `gcloud config set project <id>`.
+`just deploy` and `just cloudflare-sync` are typically wrapped in `op run --env-file=.env -- ...` so 1Password injects secrets at invocation time.
 
-Under the hood, `just deploy` runs `gcloud builds submit --config=cloudbuild.yaml --no-source`. `--no-source` tells Cloud Build to skip uploading the local directory; the pipeline clones the upstream netcidr repo itself as its first step.
+## Secrets handling
 
-## Architecture
+Two patterns supported:
 
-**Zero-cost strategy**: Cloud Run's free tier covers 2M requests + 360K GB-seconds/month with scale-to-zero. Artifact Registry's first 0.5 GB is free. Cloud Build's first 120 build-minutes/day are free.
+1. **Plaintext files** (gitignored): copy `samconfig.toml.example` → `samconfig.toml`, `.env.example` → `.env`, fill in values.
+2. **1Password-templated** (recommended): save the config as `samconfig.toml.tpl` with `op://...` references and `.env` with `op://...` references. `just deploy` runs `op inject` to render the .tpl into a real samconfig before SAM, then deletes the rendered file on exit (success or failure) via `trap`. Cloudflare recipes use `op run --env-file=.env`.
 
-`cloudbuild.yaml` steps:
-1. **clone** — `git clone` of the upstream netcidr repo, then `git checkout $_NETCIDR_REF` (accepts tags, branches, or commit SHAs)
-2. **build** — `docker build` with `--build-arg FEATURES=...` and `--build-arg WITH_DASHBOARD=...`, tagged both `:$_NETCIDR_REF` and `:latest`
-3. **push** — `docker push --all-tags` to `$_REGION-docker.pkg.dev/$PROJECT_ID/$_AR_REPO/$_IMAGE_NAME`
-4. **deploy** — `gcloud run deploy` (create-or-update) with 256Mi / 1 vCPU / concurrency 80 / min=0 / max=3, public (`--allow-unauthenticated`), command args `serve --address 0.0.0.0 --port 8080`
+Both `aws/samconfig.toml` and `aws/samconfig.toml.tpl` are gitignored.
 
-**Bootstrap prerequisite**: the Cloud Build default service account (`<project-number>-compute@developer.gserviceaccount.com`) needs `roles/run.admin` to apply `--allow-unauthenticated`. `roles/run.developer` (Cloud Build's default) can deploy but can't set IAM policy on the service. `just bootstrap` grants this.
+## Key parameters
 
-## Upstream build args
-
-The upstream `Dockerfile` accepts two build args:
-
-- **`FEATURES`** — Cargo feature list (default: `default` = swagger + dashboard). Useful values: `default`, `swagger`, `""` (slim: no swagger, no dashboard).
-- **`WITH_DASHBOARD`** — `true` builds the React SPA, `false` skips it.
-
-Pass via `--substitutions=_FEATURES=...,_WITH_DASHBOARD=...` on `gcloud builds submit`.
-
-## Key Config (Cloud Build substitutions)
-
-| Substitution | Default | Purpose |
+| Parameter | Where it goes | Notes |
 |---|---|---|
-| `_REGION` | `us-central1` | GCP region for AR + Cloud Run |
-| `_AR_REPO` | `netcidr-repo` | Artifact Registry repo name |
-| `_IMAGE_NAME` | `netcidr` | Artifact Registry image name |
-| `_SERVICE_NAME` | `netcidr` | Cloud Run service name |
-| `_ALLOW_PUBLIC_BIND` | `false` | Inject a Cloud Run TOML config that allows public bind and Swagger startup |
-| `_NETCIDR_REF` | pinned commit | Upstream git tag/branch/commit to build |
-| `_FEATURES` | `default` | Cargo features passed to Rust build |
-| `_WITH_DASHBOARD` | `true` | Build React dashboard SPA |
+| `DatabaseUrl` | samconfig | Neon connection string with `?sslmode=require` |
+| `OidcAudience` | samconfig | Google OAuth Web Client ID — also the dashboard's `VITE_OAUTH_WEB_CLIENT_ID` |
+| `OidcAllowedEmails` | samconfig | Comma-separated email allowlist for `/ipam/*` |
+| `PublicHostname` | samconfig | The hostname users hit (e.g. `netcidr.cloudreaper.dev`) |
+| `CertificateArn` | samconfig | ACM cert ARN — must be in **us-east-1** (CloudFront constraint), regardless of stack region |
+| `CLOUDFLARE_API_TOKEN` | .env | Token needs `Zone:DNS:Edit` |
+| `CLOUDFLARE_ZONE_ID` | .env | From the zone overview page |
+| `CLOUDFLARE_RECORD_NAME` | .env | Subdomain only (e.g. `netcidr` for `netcidr.cloudreaper.dev`) |
+| `CLOUDFLARE_PROXIED` | .env | Must be `false` — gray cloud only. CloudFront terminates user-facing TLS. |
 
-Pass `_NETCIDR_REF=latest` to auto-resolve to the highest upstream semver tag at build time (resolved via `git ls-remote --sort=-version:refname`).
+## Architectural decisions baked in
 
-## Manual v2 trigger
+- **No Cloudflare proxy.** Tried it; Cloudflare's free plan can't rewrite the `Host` header (Transform Rules API explicitly blocks it — error 20087: "set is not a valid value for operation because it cannot be used on header 'Host'"). Without the rewrite, CloudFront 403s any request whose Host doesn't match its alias. With the proper Alias + ACM cert, CloudFront accepts the public hostname directly.
+- **No CloudFront Origin Shield, no Lambda@Edge.** Both have separate cost. Not needed here.
+- **`OriginRequestPolicy: AllViewerExceptHostHeader`** strips Host before forwarding to Lambda. Lambda Function URLs match by URL, but reject any Host that isn't theirs.
+- **Rate limiter disabled in Lambda.** `tower_governor` needs `ConnectInfo<SocketAddr>`, which `lambda_http::run` doesn't provide — `rate_limit_per_second = 0` in the Lambda's `ServerConfig` skips the layer. AWS Lambda's own concurrency controls cover throttling.
+- **`sqlx` built with `tls-rustls`.** Neon (any cloud Postgres) requires TLS. Pure Rust, no system openssl dep — keeps the static musl Lambda build clean.
 
-The upstream `v2` branch is wired as a separate manual Cloud Build path so it
-does not replace the existing `netcidr` service or `netcidr:latest` image.
-
-```bash
-just deploy-v2          # one-off submit from this machine
-just setup-v2-trigger   # create/update prerequisite repo link + manual trigger
-just fire-v2-trigger    # run the trigger manually
-just destroy-v2-trigger # remove only the manual v2 trigger
-```
-
-The v2 trigger runs `cloudbuild.yaml` with:
-
-```text
-_NETCIDR_REF=v2
-_IMAGE_NAME=netcidr-v2
-_SERVICE_NAME=netcidr-v2
-_ALLOW_PUBLIC_BIND=true
-```
-
-## Slack notifications
-
-`notifier/` contains a Python Cloud Run Function that subscribes to the
-`cloud-builds` Pub/Sub topic, filters for our netcidr builds, and posts
-terminal-state (SUCCESS / FAILURE / TIMEOUT / CANCELLED) events to a Slack
-webhook stored in Secret Manager.
-
-## Weekly auto-rebuild
-
-Opt-in via `NETCIDR_AUTOBUILD=true` in `.env`. A Cloud Build manual trigger (backed by this repo via a GitHub App connection) runs `cloudbuild.yaml` with `_NETCIDR_REF=latest`; a Cloud Scheduler job fires the trigger weekly (Mon 09:00 America/New_York by default).
-
-**Prereqs:**
-- Cloud Build GitHub connection (one-time, via Console → Cloud Build → Connections). Grant the Google Cloud Build GitHub App access to this repo.
-
-**Setup / teardown:**
-```bash
-just setup-autobuild     # links repo, creates trigger + scheduler job
-just fire-rebuild        # manually fire the trigger right now
-just destroy-autobuild   # remove trigger + scheduler job
-just logs-build          # tail the most recent build
-```
-
-Schedule / timezone are `autobuild_schedule` / `autobuild_tz` variables at the top of the `justfile`.
-
-## Slack notifications
-
-Opt-in via `.env`. Default is **disabled** — `bootstrap` stays minimal and notifier recipes refuse to run.
+## Common operations
 
 ```bash
-# 1. Enable the flag
-cp .env.example .env
-# edit .env → NETCIDR_NOTIFIER=true
+# Just redeploy after code changes
+cd aws && just ship
 
-# 2. Re-run bootstrap (adds Cloud Functions/Eventarc/Secret Manager APIs + Pub/Sub topic)
-just bootstrap
+# Inspect live config
+aws lambda get-function-configuration --function-name netcidr --region us-east-2 \
+  --query 'Environment.Variables'
 
-# 3. Store the webhook (prompts, never echoed) and deploy the function
-just setup-slack
-just deploy-notifier
+# Look at logs from the last hour without tailing
+cd aws && just logs-recent
+
+# Tear it all down
+cd aws && just destroy           # deletes CFN stack
+# (cert and Cloudflare CNAME survive — manually clean up if you want them gone)
 ```
-
-`setup-slack` is re-run to rotate — it adds a new secret version each time. The function reads `versions/latest` on every invocation, so rotations take effect immediately.
-
-With `NETCIDR_NOTIFIER=false` (or unset), `setup-slack` / `deploy-notifier` / `destroy-notifier` all fail fast with a helpful message.
