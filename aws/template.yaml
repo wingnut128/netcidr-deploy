@@ -76,12 +76,63 @@ Resources:
       LogGroupName: !Sub "/aws/lambda/${AppName}"
       RetentionInDays: !Ref LogRetentionDays
 
+  # CloudFront sits between Cloudflare and the Lambda Function URL.
+  #
+  # Why: Lambda's Function URL only answers requests where TLS SNI matches
+  # its own `<id>.lambda-url.<region>.on.aws` hostname. Cloudflare's free
+  # plan forwards the original SNI (your custom hostname) to the origin,
+  # so Cloudflare → Function URL fails with the generic edge response.
+  # CloudFront accepts any SNI on its default cert and rewrites the Host
+  # header to the origin's actual hostname before forwarding to Lambda.
+  #
+  # Cost: CloudFront has 1 TB free egress and 10M req/mo for 12 months.
+  # After that, ~$0.085/GB out — pennies at this traffic level.
+  NetcidrCloudFront:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        Comment: !Sub "${AppName} — Cloudflare proxies to this distribution"
+        HttpVersion: http2and3
+        IPV6Enabled: true
+        PriceClass: PriceClass_100  # cheapest tier (NA + EU edges)
+        Origins:
+          - Id: lambda-origin
+            # Strip "https://" and the trailing "/" off the function URL to
+            # get the bare hostname CloudFront wants for DomainName.
+            DomainName: !Select
+              - 2
+              - !Split ["/", !GetAtt NetcidrFunctionUrl.FunctionUrl]
+            CustomOriginConfig:
+              OriginProtocolPolicy: https-only
+              OriginSSLProtocols: [TLSv1.2]
+        DefaultCacheBehavior:
+          TargetOriginId: lambda-origin
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods: [GET, HEAD, OPTIONS, PUT, POST, PATCH, DELETE]
+          CachedMethods: [GET, HEAD]
+          Compress: true
+          # Managed CachingDisabled — this is an API, not a static site.
+          CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+          # Managed AllViewerExceptHostHeader — forwards everything except
+          # the Host header, so Lambda sees Host = its own URL and routes
+          # the request correctly.
+          OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac
+        ViewerCertificate:
+          # CloudFront's default cert covers *.cloudfront.net. Cloudflare
+          # in front terminates TLS for the user's hostname; Cloudflare ↔
+          # CloudFront uses CloudFront's own domain for SNI.
+          CloudFrontDefaultCertificate: true
+
 Outputs:
-  FunctionUrl:
-    Description: Public Function URL — Cloudflare's CNAME points here.
-    Value: !GetAtt NetcidrFunctionUrl.FunctionUrl
+  CloudFrontDomain:
+    Description: CloudFront distribution domain — Cloudflare's CNAME points here.
+    Value: !GetAtt NetcidrCloudFront.DomainName
     Export:
-      Name: !Sub "${AppName}-function-url"
+      Name: !Sub "${AppName}-cloudfront-domain"
+  FunctionUrl:
+    Description: Raw Lambda Function URL (origin behind CloudFront — bypass for diagnostics).
+    Value: !GetAtt NetcidrFunctionUrl.FunctionUrl
   FunctionName:
     Value: !Ref NetcidrFunction
   LogGroup:

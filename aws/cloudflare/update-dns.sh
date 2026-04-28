@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
-# Sync a Cloudflare CNAME to the current Lambda Function URL.
+# Sync a Cloudflare CNAME to the current CloudFront distribution.
 #
-# Reads the URL from the netcidr CloudFormation stack output, strips the
-# scheme and trailing slash, then upserts a CNAME at
-# $CLOUDFLARE_RECORD_NAME → <function-url-host>.
+# Reads the CloudFront domain from the netcidr CloudFormation stack
+# output and upserts a CNAME at $CLOUDFLARE_RECORD_NAME → <cf-domain>.
+#
+# Why CloudFront and not the raw Lambda Function URL: Lambda's Function
+# URL rejects any TLS SNI that doesn't match its own hostname, which
+# Cloudflare's free plan can't rewrite. CloudFront accepts arbitrary SNI
+# on its default cert and rewrites Host to the origin before forwarding.
 #
 # Idempotent: existing record is updated in place, missing record is
 # created. Cloudflare's orange-cloud proxy is toggled per
@@ -23,20 +27,18 @@ require aws
 require curl
 require jq
 
-# 1. Pull the Function URL from the CFN stack output.
-FN_URL=$(aws cloudformation describe-stacks \
+# 1. Pull the CloudFront domain from the CFN stack output.
+TARGET_HOST=$(aws cloudformation describe-stacks \
   --stack-name "$SAM_STACK_NAME" \
   --region "$AWS_REGION" \
-  --query 'Stacks[0].Outputs[?OutputKey==`FunctionUrl`].OutputValue' \
+  --query 'Stacks[0].Outputs[?OutputKey==`CloudFrontDomain`].OutputValue' \
   --output text)
 
-if [[ -z "$FN_URL" || "$FN_URL" == "None" ]]; then
-  echo "Could not read FunctionUrl from stack '$SAM_STACK_NAME' in $AWS_REGION." >&2
-  echo "Has 'just deploy' been run?" >&2
+if [[ -z "$TARGET_HOST" || "$TARGET_HOST" == "None" ]]; then
+  echo "Could not read CloudFrontDomain from stack '$SAM_STACK_NAME' in $AWS_REGION." >&2
+  echo "Has 'just deploy' been run with the CloudFront resource present?" >&2
   exit 1
 fi
-
-TARGET_HOST=$(echo "$FN_URL" | sed -E 's|^https?://||; s|/$||')
 
 # 2. Resolve the zone's apex name so we can build the FQDN for matching.
 ZONE_NAME=$(curl -fsS \

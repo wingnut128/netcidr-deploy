@@ -1,18 +1,27 @@
 # netcidr — AWS deploy (SAM + Cloudflare)
 
 Lambda-based deployment for netcidr v2. The whole AWS surface is one
-CloudFormation stack containing a Lambda function, its Function URL, and a
-log group. Cloudflare's free proxy fronts the Function URL — no
-CloudFront, no API Gateway, no VPC, no NAT Gateway.
+CloudFormation stack: a Lambda function, its Function URL, a log group,
+and a CloudFront distribution that fronts the Function URL. Cloudflare's
+free proxy points at CloudFront. No API Gateway, no VPC, no NAT Gateway.
+
+**Why CloudFront is in the path:** Lambda Function URLs only answer
+requests where TLS SNI matches their own `<id>.lambda-url.<region>.on.aws`
+hostname. Cloudflare's free plan can't rewrite SNI, so a direct
+Cloudflare → Function URL CNAME hits the origin with the wrong SNI and
+gets a generic edge response. CloudFront accepts arbitrary SNI on its
+default cert and rewrites the Host header to the origin's hostname. AWS-
+native, no Worker.
 
 **Cost target:** $0/mo.
 
 | Layer | Service | Free? |
 |---|---|---|
 | Compute | Lambda + Function URL | 1M req/mo + 400k GB-s/mo, indefinitely |
+| CDN/edge AWS-side | CloudFront | 1 TB out + 10M req/mo for 12 months, then ~$0.085/GB out |
 | Database | [Neon](https://neon.tech) Postgres | 0.5 GB tier, indefinitely |
-| Edge | Cloudflare (free plan, proxy on) | yes |
-| TLS | Cloudflare-issued | yes |
+| Edge proxy | Cloudflare (free plan, proxy on) | yes |
+| TLS (user-facing) | Cloudflare-issued | yes |
 | DNS | Cloudflare | yes |
 
 Replaces the GCP/Cloud Run/Spacelift stack under `../terraform/v2/`. That
