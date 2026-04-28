@@ -46,10 +46,15 @@ if [[ -z "$CF_DOMAIN" || "$CF_DOMAIN" == "None" ]]; then
 fi
 
 # 3. Find (or create) the entrypoint ruleset for the phase.
-RULESET=$(curl -fsS "${AUTH[@]}" \
+#    Cloudflare returns HTTP 404 (not a `success: false` body) when no
+#    entrypoint exists yet, so we deliberately drop `-f` and check the
+#    status code ourselves.
+RULESET_RESPONSE=$(curl -sS -w '\n%{http_code}' "${AUTH[@]}" \
   "$CF/zones/$CLOUDFLARE_ZONE_ID/rulesets/phases/$PHASE/entrypoint")
+RULESET_STATUS=$(tail -n1 <<<"$RULESET_RESPONSE")
+RULESET=$(sed '$d' <<<"$RULESET_RESPONSE")
 
-if [[ "$(jq -r '.success' <<<"$RULESET")" != "true" ]]; then
+if [[ "$RULESET_STATUS" == "404" ]] || [[ "$(jq -r '.success' <<<"$RULESET" 2>/dev/null)" != "true" ]]; then
   echo "→ No entrypoint ruleset for phase $PHASE — creating it…"
   RULESET=$(curl -fsS -X POST "${AUTH[@]}" \
     "$CF/zones/$CLOUDFLARE_ZONE_ID/rulesets" \
@@ -58,6 +63,11 @@ if [[ "$(jq -r '.success' <<<"$RULESET")" != "true" ]]; then
 fi
 
 RULESET_ID=$(jq -r '.result.id' <<<"$RULESET")
+if [[ -z "$RULESET_ID" || "$RULESET_ID" == "null" ]]; then
+  echo "Failed to obtain a ruleset ID. Response was:" >&2
+  echo "$RULESET" | jq . >&2 || echo "$RULESET" >&2
+  exit 1
+fi
 
 # 4. Look for an existing rule with our description.
 EXISTING_ID=$(jq -r --arg desc "$RULE_DESCRIPTION" \
