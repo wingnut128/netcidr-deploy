@@ -1,0 +1,144 @@
+set shell := ["bash", "-euo", "pipefail", "-c"]
+set dotenv-load := true
+
+# Path to the netcidr source repo (the Rust project). Override with
+# NETCIDR_DIR=… if your checkout lives elsewhere.
+netcidr_dir := env_var_or_default("NETCIDR_DIR", "../../netcidr")
+stack := env_var_or_default("SAM_STACK_NAME", "netcidr")
+region := env_var_or_default("AWS_REGION", "us-east-1")
+
+# List recipes
+default:
+    @just --list
+
+# ─────────────────────────── Prereqs ───────────────────────────
+
+# One-time install of cargo-lambda + SAM CLI (macOS via brew).
+install-tools:
+    @echo "→ Installing zig (cross-compile linker for cargo-lambda)…"
+    @if ! command -v zig >/dev/null; then \
+        brew install zig; \
+    else echo "  already installed."; fi
+    @echo "→ Installing cargo-lambda…"
+    @if ! command -v cargo-lambda >/dev/null; then \
+        if command -v cargo-binstall >/dev/null; then \
+            cargo binstall -y cargo-lambda; \
+        else \
+            cargo install cargo-lambda; \
+        fi; \
+    else echo "  already installed."; fi
+    @echo "→ Installing AWS SAM CLI…"
+    @if ! command -v sam >/dev/null; then \
+        brew install aws-sam-cli; \
+    else echo "  already installed."; fi
+    @echo "✓ Prereqs ready."
+
+# Sanity-check that the local environment is wired (.env, AWS creds, tools).
+doctor:
+    @command -v aws >/dev/null     || { echo "✗ aws CLI missing"; exit 1; }
+    @command -v sam >/dev/null     || { echo "✗ sam CLI missing — run 'just install-tools'"; exit 1; }
+    @command -v cargo-lambda >/dev/null || { echo "✗ cargo-lambda missing — run 'just install-tools'"; exit 1; }
+    @command -v zig >/dev/null         || { echo "✗ zig missing (cargo-lambda cross-compile linker) — run 'just install-tools'"; exit 1; }
+    @command -v jq >/dev/null      || { echo "✗ jq missing"; exit 1; }
+    @aws sts get-caller-identity --output text >/dev/null || { echo "✗ AWS creds not configured"; exit 1; }
+    @test -f samconfig.toml || { echo "✗ samconfig.toml missing — copy from samconfig.toml.example"; exit 1; }
+    @test -f .env           || { echo "⚠ .env missing — Cloudflare sync will fail. Copy from .env.example."; }
+    @test -d "{{netcidr_dir}}" || { echo "✗ NETCIDR_DIR ({{netcidr_dir}}) does not exist"; exit 1; }
+    @echo "✓ All prereqs look good."
+
+# ─────────────────────────── Build ─────────────────────────────
+
+# Build the Lambda binary (arm64 musl) from the netcidr source repo.
+# Produces target/lambda/lambda/bootstrap which template.yaml's CodeUri
+# points at.
+build:
+    @echo "→ Building netcidr Lambda binary (arm64)…"
+    cd {{netcidr_dir}} && \
+        cargo lambda build --release --arm64 \
+            --bin lambda --features lambda,ipam-postgres
+    @ls -lh {{netcidr_dir}}/target/lambda/lambda/bootstrap
+
+# ─────────────────────────── Deploy ────────────────────────────
+
+# Validate the SAM template.
+validate:
+    sam validate --lint
+
+# `sam deploy` using values from samconfig.toml.
+#
+# If samconfig.toml.tpl exists, render it via `op inject` first (1Password
+# CLI), deploy, then delete the rendered samconfig.toml on exit — even if
+# the deploy fails. The plaintext file never sticks around.
+deploy: build validate
+    @if [ -f samconfig.toml.tpl ]; then \
+        echo "→ Rendering samconfig.toml from .tpl via op inject…"; \
+        trap 'rm -f samconfig.toml' EXIT; \
+        op inject -i samconfig.toml.tpl -o samconfig.toml -f; \
+        sam deploy --region {{region}}; \
+    else \
+        sam deploy --region {{region}}; \
+    fi
+
+# First-time guided deploy (writes/updates samconfig.toml interactively).
+# This bypasses the .tpl flow on purpose so the resulting file stays on
+# disk for review/edit before being copied into a .tpl.
+deploy-guided: build validate
+    sam deploy --guided --region {{region}}
+
+# Remove a rendered samconfig.toml. Safe to run any time; no-op if the
+# file already doesn't exist. Useful if `just deploy` was interrupted in
+# a way the trap missed.
+clean-config:
+    @rm -f samconfig.toml
+    @echo "✓ Removed samconfig.toml (template at samconfig.toml.tpl is preserved)."
+
+# Sync the Cloudflare CNAME to the current CloudFront distribution.
+cloudflare-sync:
+    @bash cloudflare/update-dns.sh
+
+# One-time: provision an ACM cert for the public hostname and validate
+# it via Cloudflare DNS. Prints the cert ARN to paste into samconfig.
+cert-bootstrap:
+    @bash cloudflare/bootstrap-cert.sh
+
+# Build, deploy AWS, point Cloudflare DNS at CloudFront.
+ship: deploy cloudflare-sync
+
+# ─────────────────────────── Operate ───────────────────────────
+
+# Print the CloudFront-fronted URL (what Cloudflare's CNAME points at).
+url:
+    @aws cloudformation describe-stacks \
+        --stack-name {{stack}} --region {{region}} \
+        --query 'Stacks[0].Outputs[?OutputKey==`CloudFrontDomain`].OutputValue' \
+        --output text \
+        | xargs -I{} echo "https://{}/"
+
+# Print the raw Lambda Function URL (origin behind CloudFront — for diagnostics).
+function-url:
+    @aws cloudformation describe-stacks \
+        --stack-name {{stack}} --region {{region}} \
+        --query 'Stacks[0].Outputs[?OutputKey==`FunctionUrl`].OutputValue' \
+        --output text
+
+# Tail recent Lambda logs.
+logs:
+    sam logs --stack-name {{stack}} --region {{region}} --tail
+
+# Tail logs for the last hour, no follow (one-shot for triage).
+logs-recent:
+    sam logs --stack-name {{stack}} --region {{region}} --start-time '1 hour ago'
+
+# Open the CloudFormation stack in the AWS console.
+console:
+    @open "https://{{region}}.console.aws.amazon.com/cloudformation/home?region={{region}}#/stacks/stackinfo?stackId={{stack}}"
+
+# ─────────────────────────── Teardown ──────────────────────────
+
+# Delete the CloudFormation stack (Lambda, Function URL, log group).
+# Cloudflare CNAME is left in place — remove via dashboard if you
+# also want to drop the DNS record.
+destroy:
+    @read -p "Delete stack '{{stack}}' in {{region}}? [y/N] " ans; \
+        [[ "$ans" == "y" || "$ans" == "Y" ]] || { echo "Aborted."; exit 1; }
+    sam delete --stack-name {{stack}} --region {{region}} --no-prompts

@@ -1,0 +1,156 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: netcidr — Lambda + Function URL, fronted by Cloudflare's free proxy.
+
+Parameters:
+  AppName:
+    Type: String
+    Default: netcidr
+    Description: Used to prefix all named resources.
+  DatabaseUrl:
+    Type: String
+    NoEcho: true
+    Description: |
+      Postgres connection URL for the IPAM backend (e.g., a Neon connection
+      string). Used as NETCIDR_DATABASE_URL inside the Lambda.
+  OidcAudience:
+    Type: String
+    Description: |
+      Google OAuth 2.0 Web Client ID. The dashboard signs users in against
+      this client; the Lambda validates that ID tokens carry it as their
+      `aud` claim.
+  OidcAllowedEmails:
+    Type: String
+    Default: ""
+    Description: |
+      Comma-separated email allowlist gating /ipam/*. Empty = no allowlist.
+  PublicHostname:
+    Type: String
+    Description: |
+      The public hostname users hit (e.g. netcidr.cloudreaper.dev). Becomes
+      a CloudFront alias and must be covered by CertificateArn.
+  CertificateArn:
+    Type: String
+    Description: |
+      ARN of an ACM certificate covering PublicHostname. CloudFront requires
+      certs to live in us-east-1 regardless of the stack's region. Use
+      `just cert-bootstrap` to provision and validate one against Cloudflare
+      DNS, then paste the ARN here.
+  LogRetentionDays:
+    Type: Number
+    Default: 14
+    AllowedValues: [1, 3, 5, 7, 14, 30, 60, 90, 180, 365]
+
+Globals:
+  Function:
+    Architectures: [arm64]
+    Runtime: provided.al2023
+    MemorySize: 512
+    Timeout: 30
+    Tracing: Active
+
+Resources:
+  # The Rust binary, built by `cargo lambda build --release --arm64`.
+  # Output lives at ../target/lambda/lambda/bootstrap relative to the repo
+  # root; CodeUri below points there.
+  NetcidrFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Ref AppName
+      Handler: bootstrap
+      CodeUri: ../../netcidr/target/lambda/lambda/
+      Environment:
+        Variables:
+          NETCIDR_AUTH_MODE: oidc
+          NETCIDR_OIDC_AUDIENCE: !Ref OidcAudience
+          NETCIDR_OIDC_ALLOWED_EMAILS: !Ref OidcAllowedEmails
+          NETCIDR_DATABASE_URL: !Ref DatabaseUrl
+          NETCIDR_IPAM_BACKEND: postgres
+          NETCIDR_IPAM_ENABLED: "true"
+          # Lambda's `provided.al2023` runtime sets AWS_LAMBDA_LOG_LEVEL,
+          # but our Rust app reads RUST_LOG.
+          RUST_LOG: info,tower_http=warn
+      FunctionUrlConfig:
+        AuthType: NONE
+        InvokeMode: BUFFERED
+        Cors:
+          AllowOrigins: ["*"]
+          AllowMethods: ["*"]
+          AllowHeaders: ["*"]
+          MaxAge: 3600
+
+  # Explicit log group so we control retention. Without this CloudFormation
+  # creates a group on first invoke with infinite retention, which costs a
+  # rounding error but is sloppy.
+  NetcidrLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${AppName}"
+      RetentionInDays: !Ref LogRetentionDays
+
+  # CloudFront sits between Cloudflare and the Lambda Function URL.
+  #
+  # Why: Lambda's Function URL only answers requests where TLS SNI matches
+  # its own `<id>.lambda-url.<region>.on.aws` hostname. Cloudflare's free
+  # plan forwards the original SNI (your custom hostname) to the origin,
+  # so Cloudflare → Function URL fails with the generic edge response.
+  # CloudFront accepts any SNI on its default cert and rewrites the Host
+  # header to the origin's actual hostname before forwarding to Lambda.
+  #
+  # Cost: CloudFront's always-free tier (no 12-month cliff) covers 1 TB
+  # egress + 10M requests/mo + 2M function invocations/mo. Personal-tool
+  # traffic will never come close.
+  NetcidrCloudFront:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        Comment: !Sub "${AppName} — Cloudflare proxies to this distribution"
+        HttpVersion: http2and3
+        IPV6Enabled: true
+        PriceClass: PriceClass_100  # cheapest tier (NA + EU edges)
+        Origins:
+          - Id: lambda-origin
+            # Strip "https://" and the trailing "/" off the function URL to
+            # get the bare hostname CloudFront wants for DomainName.
+            DomainName: !Select
+              - 2
+              - !Split ["/", !GetAtt NetcidrFunctionUrl.FunctionUrl]
+            CustomOriginConfig:
+              OriginProtocolPolicy: https-only
+              OriginSSLProtocols: [TLSv1.2]
+        DefaultCacheBehavior:
+          TargetOriginId: lambda-origin
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods: [GET, HEAD, OPTIONS, PUT, POST, PATCH, DELETE]
+          CachedMethods: [GET, HEAD]
+          Compress: true
+          # Managed CachingDisabled — this is an API, not a static site.
+          CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+          # Managed AllViewerExceptHostHeader — forwards everything except
+          # the Host header, so Lambda sees Host = its own URL and routes
+          # the request correctly.
+          OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac
+        # User-facing TLS terminates here. Cloudflare DNS points
+        # (gray-cloud, no proxy) at this distribution, so the cert must
+        # cover PublicHostname.
+        Aliases:
+          - !Ref PublicHostname
+        ViewerCertificate:
+          AcmCertificateArn: !Ref CertificateArn
+          SslSupportMethod: sni-only
+          MinimumProtocolVersion: TLSv1.2_2021
+
+Outputs:
+  CloudFrontDomain:
+    Description: CloudFront distribution domain — Cloudflare's CNAME points here.
+    Value: !GetAtt NetcidrCloudFront.DomainName
+    Export:
+      Name: !Sub "${AppName}-cloudfront-domain"
+  FunctionUrl:
+    Description: Raw Lambda Function URL (origin behind CloudFront — bypass for diagnostics).
+    Value: !GetAtt NetcidrFunctionUrl.FunctionUrl
+  FunctionName:
+    Value: !Ref NetcidrFunction
+  LogGroup:
+    Value: !Ref NetcidrLogGroup

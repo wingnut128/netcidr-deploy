@@ -86,6 +86,19 @@ infra/v2/node_modules/
 infra/v2/Pulumi.*.yaml
 !infra/v2/Pulumi.yaml
 
+# ── AWS SAM ─────────────────────────────────────────────
+aws/samconfig.toml
+aws/.aws-sam/
+# .tpl is the 1Password-templated source — contains `op://...` refs, not
+# secrets — safe to commit if you want, but ignored by default so org-
+# specific vault paths don't leak into the public repo.
+aws/samconfig.toml.tpl
+
 # ── Local AI tooling state ──────────────────────────────
-.claude/settings.local.json
+.claude/
+.agents/
 .serena/
+skills-lock.json
+**/skills-lock.json
+!.claude/settings.json
+!.claude/CLAUDE.md
