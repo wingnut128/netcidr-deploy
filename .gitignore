@@ -95,5 +95,10 @@ aws/.aws-sam/
 aws/samconfig.toml.tpl
 
 # ── Local AI tooling state ──────────────────────────────
-.claude/settings.local.json
+.claude/
+.agents/
 .serena/
+skills-lock.json
+**/skills-lock.json
+!.claude/settings.json
+!.claude/CLAUDE.md
