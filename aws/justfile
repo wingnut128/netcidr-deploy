@@ -48,11 +48,24 @@ doctor:
 
 # ─────────────────────────── Build ─────────────────────────────
 
+# Build the dashboard SPA. Runs `bun run build` with VITE_OAUTH_WEB_CLIENT_ID
+# in scope so Vite bakes the Google OAuth client ID into the bundle —
+# without it, the dashboard treats auth as "disabled" and renders the
+# IPAM tab with a generic Unauthorized error instead of the sign-in card.
+dashboard:
+    @if [ -z "${VITE_OAUTH_WEB_CLIENT_ID:-}" ]; then \
+        echo "[WARN] VITE_OAUTH_WEB_CLIENT_ID not set — IPAM sign-in will not work."; \
+        echo "       Set it in .env (or via op run) and rebuild."; \
+    fi
+    cd {{netcidr_dir}}/dashboard && bun install --frozen-lockfile && bun run build
+
 # Build the Lambda binary (arm64 musl) from the netcidr source repo.
+# Depends on `dashboard` so the embedded SPA is fresh — cargo's
+# include_str! reads dashboard/dist/index.html at compile time.
 # Produces target/lambda/lambda/bootstrap which template.yaml's CodeUri
 # points at.
-build:
-    @echo "→ Building netcidr Lambda binary (arm64)…"
+build: dashboard
+    @echo "[INFO] Building netcidr Lambda binary (arm64)..."
     cd {{netcidr_dir}} && \
         cargo lambda build --release --arm64 \
             --bin lambda --features lambda,ipam-postgres
