@@ -24,6 +24,12 @@ Parameters:
     Default: ""
     Description: |
       Comma-separated email allowlist gating /ipam/*. Empty = no allowlist.
+  AdminEmails:
+    Type: String
+    Default: ""
+    Description: |
+      Comma-separated emails with administrative access (currently:
+      view the allowlist at /admin/allowlist). Subset of OidcAllowedEmails.
   PublicHostname:
     Type: String
     Description: |
@@ -64,6 +70,7 @@ Resources:
           NETCIDR_AUTH_MODE: oidc
           NETCIDR_OIDC_AUDIENCE: !Ref OidcAudience
           NETCIDR_OIDC_ALLOWED_EMAILS: !Ref OidcAllowedEmails
+          NETCIDR_ADMIN_EMAILS: !Ref AdminEmails
           NETCIDR_DATABASE_URL: !Ref DatabaseUrl
           NETCIDR_IPAM_BACKEND: postgres
           NETCIDR_IPAM_ENABLED: "true"
