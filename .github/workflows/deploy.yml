@@ -93,11 +93,11 @@ jobs:
         uses: mlugg/setup-zig@v2
 
       - name: Install cargo-lambda
-        # Official action installs the prebuilt binary. Avoids fragile URL
-        # patterns (release assets are versioned + use musl, not gnu).
-        uses: cargo-lambda/cargo-lambda-action@v1
-        with:
-          command: --version
+        # cargo-lambda publishes Python wheels; pip on the runner has it
+        # in seconds, no compile, no third-party action needed.
+        run: |
+          python3 -m pip install --user cargo-lambda
+          cargo-lambda --version
 
       - name: Set up SAM CLI
         uses: aws-actions/setup-sam@v2
