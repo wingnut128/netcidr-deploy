@@ -30,17 +30,26 @@ on:
         required: false
         default: "netcidr"
         type: string
+  # Fired from wingnut128/netcidr's release workflow when a new vX.Y.Z
+  # tag is published. Payload: { ref: "vX.Y.Z", stack: "netcidr" }.
+  repository_dispatch:
+    types: [netcidr-released]
 
 permissions:
   id-token: write # OIDC → AWS
   contents: read
 
 concurrency:
-  group: deploy-${{ inputs.stack_name }}
+  group: deploy-${{ github.event.client_payload.stack || inputs.stack_name || 'netcidr' }}
   cancel-in-progress: false
 
 env:
   AWS_REGION: ${{ vars.AWS_REGION }}
+  # Resolve from repository_dispatch payload if dispatched, otherwise
+  # from workflow_dispatch inputs, otherwise default. Each step uses
+  # env.NETCIDR_REF / env.STACK_NAME instead of inputs/payload directly.
+  NETCIDR_REF: ${{ github.event.client_payload.ref || inputs.netcidr_ref || 'main' }}
+  STACK_NAME: ${{ github.event.client_payload.stack || inputs.stack_name || 'netcidr' }}
 
 jobs:
   deploy:
@@ -61,7 +70,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           repository: wingnut128/netcidr
-          ref: ${{ inputs.netcidr_ref }}
+          ref: ${{ env.NETCIDR_REF }}
           path: netcidr
 
       # Pull deploy secrets from 1Password into env vars. Mirrors the
@@ -138,7 +147,7 @@ jobs:
         # DATABASE_URL / OIDC_AUDIENCE / CERTIFICATE_ARN already in env
         # from the 1Password step.
         env:
-          STACK_NAME: ${{ inputs.stack_name }}
+          STACK_NAME: ${{ env.STACK_NAME }}
           REGION: ${{ env.AWS_REGION }}
           OIDC_ALLOWED_EMAILS: ${{ vars.OIDC_ALLOWED_EMAILS }}
           ADMIN_EMAILS: ${{ vars.ADMIN_EMAILS }}
@@ -162,7 +171,7 @@ jobs:
 
       - name: Show stack outputs
         env:
-          STACK_NAME: ${{ inputs.stack_name }}
+          STACK_NAME: ${{ env.STACK_NAME }}
           REGION: ${{ env.AWS_REGION }}
         run: |
           aws cloudformation describe-stacks \
