@@ -76,7 +76,9 @@ Outputs `RoleArn`. Save it into the 1Password vault as a new item:
 - **Secrets**: `OP_SERVICE_ACCOUNT_TOKEN`
 - **Variables**: `AWS_REGION`, `PUBLIC_HOSTNAME`, `OIDC_ALLOWED_EMAILS`, `ADMIN_EMAILS`
 
-**4. Trigger:** Actions → "Deploy" → Run workflow.
+**4. Trigger** (any of):
+- Actions → "Deploy" → Run workflow (manual, optional `netcidr_ref` override).
+- A new `vX.Y.Z` tag is pushed in `wingnut128/netcidr` — the netcidr release workflow fires `repository_dispatch: netcidr-released` here, which auto-deploys with the new tag. Requires netcidr to hold a fine-grained PAT (`DEPLOY_DISPATCH_TOKEN`) with `Actions: read+write` on this repo.
 
 ### What lives where
 
