@@ -74,7 +74,7 @@ Outputs `RoleArn`. Save it into the 1Password vault as a new item:
 
 **3. Configure GitHub repo settings (Settings → Secrets and variables → Actions):**
 - **Secrets**: `OP_SERVICE_ACCOUNT_TOKEN`
-- **Variables**: `AWS_REGION`, `PUBLIC_HOSTNAME`, `OIDC_ALLOWED_EMAILS`, `ADMIN_EMAILS`
+- **Variables**: `AWS_REGION`, `PUBLIC_HOSTNAME`, `OIDC_ALLOWED_EMAILS`, `ADMIN_EMAILS`, `CLOUDFLARE_RECORD_NAME`
 
 **4. Trigger** (any of):
 - Actions → "Deploy" → Run workflow (manual, optional `netcidr_ref` override).
@@ -88,12 +88,15 @@ Outputs `RoleArn`. Save it into the 1Password vault as a new item:
 | `DatabaseUrl` | 1Password (`neon/connect_string`) | Secret |
 | `OidcAudience` | 1Password (`gcp-client-id/client_id`) | Secret-ish (treat as such) |
 | `CertificateArn` | 1Password (`certificate/arn`) | Sensitive-ish |
+| `CLOUDFLARE_API_TOKEN` | 1Password (`cloudflare/api_token`) | Secret — `Zone:DNS:Edit` only |
+| `CLOUDFLARE_ZONE_ID` | 1Password (`cloudflare/zone_id`) | Not really sensitive, but kept with token |
+| `CLOUDFLARE_RECORD_NAME` | Repo variable | Subdomain only (e.g. `netcidr`) — public |
 | `AWS_REGION`, `PublicHostname`, `OidcAllowedEmails`, `AdminEmails` | Repo variables | Not sensitive, easy to read in run logs |
 | `OP_SERVICE_ACCOUNT_TOKEN` | Repo secret | Required to bootstrap 1Password reads |
 
 Vault paths in the workflow exactly mirror those in `aws/samconfig.toml.tpl` so a single rotation in 1Password updates both local (`op inject`) and CI flows.
 
-Cloudflare DNS sync stays local-only — the Cloudflare token never leaves your machine.
+Cloudflare DNS sync also runs in CI (after `sam deploy`), pulling the API token from the same `netcidr-deployment` vault. Local `just cloudflare-sync` still works for ad-hoc reruns.
 
 ## Secrets handling
 
