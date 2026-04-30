@@ -1,18 +1,21 @@
 name: Deploy
 
-# Manual deploy to AWS via SAM, authenticating with OIDC (no static keys).
-# Mirrors what `cd aws && just deploy` does locally:
+# Manual deploy to AWS via SAM. Authenticates to AWS via GitHub OIDC (no
+# static keys) and pulls deploy secrets from 1Password via a service
+# account, mirroring the local `op inject` flow.
+#
+# Mirrors `cd aws && just deploy`:
 #   1. Check out wingnut128/netcidr at the requested ref
 #   2. Build the React dashboard (with VITE_OAUTH_WEB_CLIENT_ID baked in)
 #   3. Build the arm64 Lambda binary via cargo-lambda
-#   4. sam build + sam deploy with parameter-overrides from repo secrets/vars
+#   4. sam validate + sam deploy with parameter-overrides from 1Password
 #
-# Prereqs (one-time, see aws/oidc-bootstrap.yaml):
-#   - GitHub OIDC provider exists in the target AWS account
-#   - IAM role trusts this repo for OIDC; ARN stored as repo secret AWS_ROLE_TO_ASSUME
-#   - Repo variables: AWS_REGION, PUBLIC_HOSTNAME, CERTIFICATE_ARN,
-#     OIDC_AUDIENCE, OIDC_ALLOWED_EMAILS, ADMIN_EMAILS
-#   - Repo secrets: AWS_ROLE_TO_ASSUME, DATABASE_URL
+# One-time setup (see CLAUDE.md):
+#   - 1Password service account scoped to the `netcidr-deployment` vault;
+#     token stored as repo secret OP_SERVICE_ACCOUNT_TOKEN
+#   - GitHub OIDC provider + IAM role provisioned via aws/oidc-bootstrap.yaml
+#   - Repo secrets: OP_SERVICE_ACCOUNT_TOKEN
+#   - Repo variables: AWS_REGION, PUBLIC_HOSTNAME, OIDC_ALLOWED_EMAILS, ADMIN_EMAILS
 
 on:
   workflow_dispatch:
@@ -33,7 +36,6 @@ permissions:
   contents: read
 
 concurrency:
-  # Don't deploy two builds against the same stack simultaneously.
   group: deploy-${{ inputs.stack_name }}
   cancel-in-progress: false
 
@@ -62,6 +64,21 @@ jobs:
           ref: ${{ inputs.netcidr_ref }}
           path: netcidr
 
+      # Pull deploy secrets from 1Password into env vars. Mirrors the
+      # `op://netcidr-deployment/...` references in samconfig.toml.tpl.
+      # The service account's token is the only credential GitHub holds;
+      # everything else lives in the vault.
+      - name: Load secrets from 1Password
+        uses: 1password/load-secrets-action@v3
+        with:
+          export-env: true
+        env:
+          OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
+          AWS_ROLE_TO_ASSUME: op://netcidr-deployment/aws-deploy-role/arn
+          DATABASE_URL: op://netcidr-deployment/neon/connect_string
+          OIDC_AUDIENCE: op://netcidr-deployment/gcp-client-id/client_id
+          CERTIFICATE_ARN: op://netcidr-deployment/certificate/arn
+
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
         with:
@@ -89,9 +106,10 @@ jobs:
       - name: Build dashboard SPA
         working-directory: netcidr/dashboard
         env:
-          # Vite bakes this into the bundle at build time. Same value as the
-          # Lambda's NETCIDR_OIDC_AUDIENCE — the Google OAuth Web Client ID.
-          VITE_OAUTH_WEB_CLIENT_ID: ${{ vars.OIDC_AUDIENCE }}
+          # Vite bakes this into the bundle. Same value as Lambda's
+          # NETCIDR_OIDC_AUDIENCE — the Google OAuth Web Client ID,
+          # already loaded into env by the 1Password step.
+          VITE_OAUTH_WEB_CLIENT_ID: ${{ env.OIDC_AUDIENCE }}
         run: |
           bun install --frozen-lockfile
           bun run build
@@ -106,7 +124,7 @@ jobs:
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          role-to-assume: ${{ env.AWS_ROLE_TO_ASSUME }}
           aws-region: ${{ env.AWS_REGION }}
           role-session-name: gh-actions-${{ github.run_id }}
 
@@ -116,18 +134,16 @@ jobs:
 
       - name: SAM deploy
         working-directory: deploy/aws
-        # All workflow_dispatch inputs and repo vars/secrets are passed as
-        # env vars (never inlined into shell with `${{ … }}`) to avoid
-        # injection if anyone supplies a malicious stack_name or ref.
+        # workflow_dispatch inputs and repo vars flow through env vars
+        # (never inlined as `${{ … }}` into shell) to defuse injection.
+        # DATABASE_URL / OIDC_AUDIENCE / CERTIFICATE_ARN already in env
+        # from the 1Password step.
         env:
           STACK_NAME: ${{ inputs.stack_name }}
           REGION: ${{ env.AWS_REGION }}
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          OIDC_AUDIENCE: ${{ vars.OIDC_AUDIENCE }}
           OIDC_ALLOWED_EMAILS: ${{ vars.OIDC_ALLOWED_EMAILS }}
           ADMIN_EMAILS: ${{ vars.ADMIN_EMAILS }}
           PUBLIC_HOSTNAME: ${{ vars.PUBLIC_HOSTNAME }}
-          CERTIFICATE_ARN: ${{ vars.CERTIFICATE_ARN }}
         run: |
           sam deploy \
             --stack-name "$STACK_NAME" \
