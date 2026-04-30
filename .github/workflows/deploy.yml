@@ -93,12 +93,11 @@ jobs:
         uses: mlugg/setup-zig@v2
 
       - name: Install cargo-lambda
-        # Same prebuilt-binary installer netcidr's CI uses for cargo-audit
-        # and nextest. Knows cargo-lambda's release naming scheme so we
-        # don't have to track musl/gnu/version asset patterns.
-        uses: taiki-e/install-action@v2
+        # Official action installs the prebuilt binary. Avoids fragile URL
+        # patterns (release assets are versioned + use musl, not gnu).
+        uses: cargo-lambda/cargo-lambda-action@v1
         with:
-          tool: cargo-lambda
+          command: --version
 
       - name: Set up SAM CLI
         uses: aws-actions/setup-sam@v2
