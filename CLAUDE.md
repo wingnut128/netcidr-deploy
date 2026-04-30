@@ -50,6 +50,49 @@ just destroy           # delete the CFN stack (prompts)
 
 `just deploy` and `just cloudflare-sync` are typically wrapped in `op run --env-file=.env -- ...` so 1Password injects secrets at invocation time.
 
+## Deploying from CI (GitHub Actions)
+
+`.github/workflows/deploy.yml` mirrors `just deploy` but runs in GitHub Actions, authenticating to AWS via OIDC (no static keys) and pulling deploy secrets from 1Password via a service account. Triggered manually via the Actions tab (`workflow_dispatch`) with optional inputs `netcidr_ref` (default `main`) and `stack_name`.
+
+### One-time setup
+
+**1. Bootstrap the AWS IAM role + OIDC trust:**
+```bash
+cd aws && just oidc-bootstrap
+# If the GH OIDC provider already exists in the account: just oidc-bootstrap false
+```
+Outputs `RoleArn`. Save it into the 1Password vault as a new item:
+- Vault: `netcidr-deployment`
+- Item: `aws-deploy-role`
+- Field: `arn`
+
+**2. Create a 1Password service account:**
+- 1Password → Integrations → Service Accounts → Create
+- Scope: read-only on the `netcidr-deployment` vault
+- Copy the token (shown once); store as repo secret `OP_SERVICE_ACCOUNT_TOKEN`
+- See [1Password's GitHub Actions docs](https://developer.1password.com/docs/ci-cd/github-actions/)
+
+**3. Configure GitHub repo settings (Settings → Secrets and variables → Actions):**
+- **Secrets**: `OP_SERVICE_ACCOUNT_TOKEN`
+- **Variables**: `AWS_REGION`, `PUBLIC_HOSTNAME`, `OIDC_ALLOWED_EMAILS`, `ADMIN_EMAILS`
+
+**4. Trigger:** Actions → "Deploy" → Run workflow.
+
+### What lives where
+
+| Setting | Source | Why |
+|---|---|---|
+| `AWS_ROLE_TO_ASSUME` | 1Password (`aws-deploy-role/arn`) | Sensitive-ish, central rotation |
+| `DatabaseUrl` | 1Password (`neon/connect_string`) | Secret |
+| `OidcAudience` | 1Password (`gcp-client-id/client_id`) | Secret-ish (treat as such) |
+| `CertificateArn` | 1Password (`certificate/arn`) | Sensitive-ish |
+| `AWS_REGION`, `PublicHostname`, `OidcAllowedEmails`, `AdminEmails` | Repo variables | Not sensitive, easy to read in run logs |
+| `OP_SERVICE_ACCOUNT_TOKEN` | Repo secret | Required to bootstrap 1Password reads |
+
+Vault paths in the workflow exactly mirror those in `aws/samconfig.toml.tpl` so a single rotation in 1Password updates both local (`op inject`) and CI flows.
+
+Cloudflare DNS sync stays local-only — the Cloudflare token never leaves your machine.
+
 ## Secrets handling
 
 Two patterns supported:

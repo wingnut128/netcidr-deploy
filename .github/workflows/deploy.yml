@@ -1,0 +1,173 @@
+name: Deploy
+
+# Manual deploy to AWS via SAM. Authenticates to AWS via GitHub OIDC (no
+# static keys) and pulls deploy secrets from 1Password via a service
+# account, mirroring the local `op inject` flow.
+#
+# Mirrors `cd aws && just deploy`:
+#   1. Check out wingnut128/netcidr at the requested ref
+#   2. Build the React dashboard (with VITE_OAUTH_WEB_CLIENT_ID baked in)
+#   3. Build the arm64 Lambda binary via cargo-lambda
+#   4. sam validate + sam deploy with parameter-overrides from 1Password
+#
+# One-time setup (see CLAUDE.md):
+#   - 1Password service account scoped to the `netcidr-deployment` vault;
+#     token stored as repo secret OP_SERVICE_ACCOUNT_TOKEN
+#   - GitHub OIDC provider + IAM role provisioned via aws/oidc-bootstrap.yaml
+#   - Repo secrets: OP_SERVICE_ACCOUNT_TOKEN
+#   - Repo variables: AWS_REGION, PUBLIC_HOSTNAME, OIDC_ALLOWED_EMAILS, ADMIN_EMAILS
+
+on:
+  workflow_dispatch:
+    inputs:
+      netcidr_ref:
+        description: "netcidr git ref to build (tag/branch/SHA)"
+        required: false
+        default: "main"
+        type: string
+      stack_name:
+        description: "CloudFormation stack name"
+        required: false
+        default: "netcidr"
+        type: string
+
+permissions:
+  id-token: write # OIDC → AWS
+  contents: read
+
+concurrency:
+  group: deploy-${{ inputs.stack_name }}
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION }}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
+      - name: Check out deploy repo
+        uses: actions/checkout@v6
+        with:
+          path: deploy
+
+      - name: Check out netcidr source
+        uses: actions/checkout@v6
+        with:
+          repository: wingnut128/netcidr
+          ref: ${{ inputs.netcidr_ref }}
+          path: netcidr
+
+      # Pull deploy secrets from 1Password into env vars. Mirrors the
+      # `op://netcidr-deployment/...` references in samconfig.toml.tpl.
+      # The service account's token is the only credential GitHub holds;
+      # everything else lives in the vault.
+      - name: Load secrets from 1Password
+        uses: 1password/load-secrets-action@v3
+        with:
+          export-env: true
+        env:
+          OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
+          AWS_ROLE_TO_ASSUME: op://netcidr-deployment/aws-deploy-role/arn
+          DATABASE_URL: op://netcidr-deployment/neon/connect_string
+          OIDC_AUDIENCE: op://netcidr-deployment/gcp-client-id/client_id
+          CERTIFICATE_ARN: op://netcidr-deployment/certificate/arn
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1"
+
+      - name: Set up Rust (stable + aarch64-unknown-linux-musl)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-unknown-linux-musl
+
+      - name: Set up Zig (cargo-lambda's cross linker)
+        uses: mlugg/setup-zig@v2
+
+      - name: Install cargo-lambda
+        run: |
+          curl -fsSL https://github.com/cargo-lambda/cargo-lambda/releases/latest/download/cargo-lambda-x86_64-unknown-linux-gnu.tar.gz \
+            | tar -xz -C /usr/local/bin cargo-lambda
+          cargo-lambda --version
+
+      - name: Set up SAM CLI
+        uses: aws-actions/setup-sam@v2
+        with:
+          use-installer: true
+
+      - name: Build dashboard SPA
+        working-directory: netcidr/dashboard
+        env:
+          # Vite bakes this into the bundle. Same value as Lambda's
+          # NETCIDR_OIDC_AUDIENCE — the Google OAuth Web Client ID,
+          # already loaded into env by the 1Password step.
+          VITE_OAUTH_WEB_CLIENT_ID: ${{ env.OIDC_AUDIENCE }}
+        run: |
+          bun install --frozen-lockfile
+          bun run build
+
+      - name: Build Lambda binary (arm64 musl)
+        working-directory: netcidr
+        run: |
+          cargo lambda build --release --arm64 \
+            --bin lambda --features lambda,ipam-postgres
+          ls -lh target/lambda/lambda/bootstrap
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: gh-actions-${{ github.run_id }}
+
+      - name: SAM validate
+        working-directory: deploy/aws
+        run: sam validate --lint
+
+      - name: SAM deploy
+        working-directory: deploy/aws
+        # workflow_dispatch inputs and repo vars flow through env vars
+        # (never inlined as `${{ … }}` into shell) to defuse injection.
+        # DATABASE_URL / OIDC_AUDIENCE / CERTIFICATE_ARN already in env
+        # from the 1Password step.
+        env:
+          STACK_NAME: ${{ inputs.stack_name }}
+          REGION: ${{ env.AWS_REGION }}
+          OIDC_ALLOWED_EMAILS: ${{ vars.OIDC_ALLOWED_EMAILS }}
+          ADMIN_EMAILS: ${{ vars.ADMIN_EMAILS }}
+          PUBLIC_HOSTNAME: ${{ vars.PUBLIC_HOSTNAME }}
+        run: |
+          sam deploy \
+            --stack-name "$STACK_NAME" \
+            --region "$REGION" \
+            --capabilities CAPABILITY_IAM \
+            --resolve-s3 \
+            --no-confirm-changeset \
+            --no-fail-on-empty-changeset \
+            --parameter-overrides \
+              "AppName=$STACK_NAME" \
+              "DatabaseUrl=$DATABASE_URL" \
+              "OidcAudience=$OIDC_AUDIENCE" \
+              "OidcAllowedEmails=$OIDC_ALLOWED_EMAILS" \
+              "AdminEmails=$ADMIN_EMAILS" \
+              "PublicHostname=$PUBLIC_HOSTNAME" \
+              "CertificateArn=$CERTIFICATE_ARN"
+
+      - name: Show stack outputs
+        env:
+          STACK_NAME: ${{ inputs.stack_name }}
+          REGION: ${{ env.AWS_REGION }}
+        run: |
+          aws cloudformation describe-stacks \
+            --stack-name "$STACK_NAME" \
+            --region "$REGION" \
+            --query 'Stacks[0].Outputs' \
+            --output table
