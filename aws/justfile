@@ -77,6 +77,22 @@ build: dashboard
 validate:
     sam validate --lint
 
+# One-time: deploy the OIDC trust + IAM role for GitHub Actions.
+# Outputs RoleArn — paste into the repo secret AWS_ROLE_TO_ASSUME.
+# If the GitHub OIDC provider already exists in this account, pass
+# CreateOidcProvider=false: `just oidc-bootstrap false`.
+oidc-bootstrap create_provider="true":
+    aws cloudformation deploy \
+        --template-file oidc-bootstrap.yaml \
+        --stack-name netcidr-deploy-gha-oidc \
+        --region {{region}} \
+        --capabilities CAPABILITY_NAMED_IAM \
+        --parameter-overrides CreateOidcProvider={{create_provider}}
+    @aws cloudformation describe-stacks \
+        --stack-name netcidr-deploy-gha-oidc --region {{region}} \
+        --query 'Stacks[0].Outputs[?OutputKey==`RoleArn`].OutputValue' \
+        --output text
+
 # `sam deploy` using values from samconfig.toml.
 #
 # If samconfig.toml.tpl exists, render it via `op inject` first (1Password

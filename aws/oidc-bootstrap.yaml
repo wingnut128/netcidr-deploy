@@ -1,0 +1,166 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: |
+  One-time bootstrap stack: GitHub Actions OIDC trust + IAM role for the
+  netcidr-deploy workflow. Apply once per AWS account, then put the
+  resulting role ARN into the repo secret AWS_ROLE_TO_ASSUME.
+
+Parameters:
+  GitHubOrg:
+    Type: String
+    Default: wingnut128
+    Description: GitHub user/org that owns the deploy repo.
+  GitHubRepo:
+    Type: String
+    Default: netcidr-deploy
+    Description: Repo name (without the org prefix).
+  RoleName:
+    Type: String
+    Default: netcidr-deploy-gha
+    Description: IAM role name. The workflow's AWS_ROLE_TO_ASSUME secret should point at this role's ARN.
+  CreateOidcProvider:
+    Type: String
+    AllowedValues: ["true", "false"]
+    Default: "true"
+    Description: |
+      The GitHub OIDC provider is account-wide. Set to "false" if you've
+      already created it in this account (from another stack or by hand) —
+      AWS rejects two providers for the same URL.
+
+Conditions:
+  CreateProvider: !Equals [!Ref CreateOidcProvider, "true"]
+
+Resources:
+  GitHubOidcProvider:
+    Type: AWS::IAM::OIDCProvider
+    Condition: CreateProvider
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList:
+        - sts.amazonaws.com
+      ThumbprintList:
+        # GitHub root CA thumbprints. AWS keeps these in sync as long as
+        # at least one valid thumbprint stays present.
+        - 6938fd4d98bab03faadb97b34396831e3780aea1
+        - 1c58a3a8518e8759bf075b76b750d4f2df264fcd
+
+  GitHubActionsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Ref RoleName
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !Sub "arn:aws:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com"
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+              StringLike:
+                # Trusts any branch/tag/PR in the repo. Tighten to a single
+                # branch ("repo:.../...:ref:refs/heads/main") if you want
+                # stricter scope.
+                token.actions.githubusercontent.com:sub: !Sub "repo:${GitHubOrg}/${GitHubRepo}:*"
+      Policies:
+        - PolicyName: SamDeploy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              # CloudFormation operations SAM uses.
+              - Effect: Allow
+                Action:
+                  - cloudformation:CreateStack
+                  - cloudformation:UpdateStack
+                  - cloudformation:DeleteStack
+                  - cloudformation:DescribeStacks
+                  - cloudformation:DescribeStackEvents
+                  - cloudformation:DescribeStackResource
+                  - cloudformation:DescribeStackResources
+                  - cloudformation:GetTemplate
+                  - cloudformation:GetTemplateSummary
+                  - cloudformation:ListStacks
+                  - cloudformation:ValidateTemplate
+                  - cloudformation:CreateChangeSet
+                  - cloudformation:DescribeChangeSet
+                  - cloudformation:ExecuteChangeSet
+                  - cloudformation:DeleteChangeSet
+                Resource: "*"
+
+              # Lambda CRUD for the netcidr function + Function URL.
+              - Effect: Allow
+                Action:
+                  - lambda:*
+                Resource: "*"
+
+              # CloudFront distribution for the public hostname.
+              - Effect: Allow
+                Action:
+                  - cloudfront:CreateDistribution
+                  - cloudfront:UpdateDistribution
+                  - cloudfront:DeleteDistribution
+                  - cloudfront:GetDistribution
+                  - cloudfront:GetDistributionConfig
+                  - cloudfront:ListDistributions
+                  - cloudfront:TagResource
+                  - cloudfront:UntagResource
+                Resource: "*"
+
+              # Log group with retention.
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:DeleteLogGroup
+                  - logs:DescribeLogGroups
+                  - logs:PutRetentionPolicy
+                  - logs:DeleteRetentionPolicy
+                  - logs:TagResource
+                Resource: "*"
+
+              # IAM for the Lambda execution role SAM creates. Scoped to
+              # roles named netcidr* so this can't escalate beyond the app.
+              - Effect: Allow
+                Action:
+                  - iam:CreateRole
+                  - iam:DeleteRole
+                  - iam:GetRole
+                  - iam:PassRole
+                  - iam:AttachRolePolicy
+                  - iam:DetachRolePolicy
+                  - iam:PutRolePolicy
+                  - iam:DeleteRolePolicy
+                  - iam:GetRolePolicy
+                  - iam:ListRolePolicies
+                  - iam:ListAttachedRolePolicies
+                  - iam:TagRole
+                  - iam:UntagRole
+                Resource:
+                  - !Sub "arn:aws:iam::${AWS::AccountId}:role/netcidr*"
+
+              # SAM uploads packaged code to its managed bucket.
+              - Effect: Allow
+                Action:
+                  - s3:CreateBucket
+                  - s3:GetBucketLocation
+                  - s3:GetBucketPolicy
+                  - s3:PutBucketPolicy
+                  - s3:PutBucketTagging
+                  - s3:PutBucketVersioning
+                  - s3:PutBucketEncryption
+                  - s3:PutEncryptionConfiguration
+                  - s3:PutBucketPublicAccessBlock
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:DeleteObject
+                  - s3:ListBucket
+                Resource:
+                  - !Sub "arn:aws:s3:::aws-sam-cli-managed-default-*"
+                  - !Sub "arn:aws:s3:::aws-sam-cli-managed-default-*/*"
+
+Outputs:
+  RoleArn:
+    Description: |
+      Paste this into the netcidr-deploy repo's AWS_ROLE_TO_ASSUME secret.
+    Value: !GetAtt GitHubActionsRole.Arn
+    Export:
+      Name: !Sub "${RoleName}-arn"

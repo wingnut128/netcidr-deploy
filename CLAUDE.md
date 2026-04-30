@@ -50,6 +50,28 @@ just destroy           # delete the CFN stack (prompts)
 
 `just deploy` and `just cloudflare-sync` are typically wrapped in `op run --env-file=.env -- ...` so 1Password injects secrets at invocation time.
 
+## Deploying from CI (GitHub Actions)
+
+`.github/workflows/deploy.yml` mirrors `just deploy` but runs in GitHub Actions, authenticating to AWS via OIDC (no static keys). Triggered manually via the Actions tab (`workflow_dispatch`) with optional inputs `netcidr_ref` (default `main`) and `stack_name`.
+
+**One-time setup:**
+
+1. Bootstrap the IAM role + OIDC trust:
+   ```bash
+   cd aws && just oidc-bootstrap
+   # If the GH OIDC provider already exists in the AWS account, pass false:
+   #   just oidc-bootstrap false
+   ```
+   Outputs the `RoleArn` — paste into the repo secret `AWS_ROLE_TO_ASSUME`.
+
+2. Configure repo secrets/vars (Settings → Secrets and variables → Actions):
+   - **Secrets**: `AWS_ROLE_TO_ASSUME`, `DATABASE_URL`
+   - **Variables**: `AWS_REGION`, `OIDC_AUDIENCE`, `OIDC_ALLOWED_EMAILS`, `ADMIN_EMAILS`, `PUBLIC_HOSTNAME`, `CERTIFICATE_ARN`
+
+3. Trigger from Actions UI → "Deploy" → Run workflow.
+
+The workflow handles dashboard build + Lambda compile + `sam deploy`. Cloudflare DNS sync stays local-only for now (token never leaves your machine).
+
 ## Secrets handling
 
 Two patterns supported:
