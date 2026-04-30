@@ -90,14 +90,12 @@ jobs:
           targets: aarch64-unknown-linux-musl
 
       - name: Set up Zig (cargo-lambda's cross linker)
-        uses: mlugg/setup-zig@v2
+        uses: goto-bus-stop/setup-zig@v2
+        with:
+          version: 0.13.0
 
       - name: Install cargo-lambda
-        # Official action installs the prebuilt binary. Avoids fragile URL
-        # patterns (release assets are versioned + use musl, not gnu).
-        uses: cargo-lambda/cargo-lambda-action@v1
-        with:
-          command: --version
+        uses: zerj9/setup-cargo-lambda@v0.1.1
 
       - name: Set up SAM CLI
         uses: aws-actions/setup-sam@v2
