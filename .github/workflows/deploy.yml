@@ -101,7 +101,7 @@ jobs:
           targets: aarch64-unknown-linux-musl
 
       - name: Set up Zig (cargo-lambda's cross linker)
-        uses: goto-bus-stop/setup-zig@v2
+        uses: step-security/setup-zig@v2.2.1
         with:
           version: 0.13.0
 
