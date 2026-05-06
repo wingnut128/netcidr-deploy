@@ -57,17 +57,17 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Harden runner
-        uses: step-security/harden-runner@v2
+        uses: step-security/harden-runner@a5ad31d6a139d249332a2605b85202e8c0b78450 # v2.19.1
         with:
           egress-policy: audit
 
       - name: Check out deploy repo
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           path: deploy
 
       - name: Check out netcidr source
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           repository: wingnut128/netcidr
           ref: ${{ env.NETCIDR_REF }}
@@ -78,7 +78,7 @@ jobs:
       # The service account's token is the only credential GitHub holds;
       # everything else lives in the vault.
       - name: Load secrets from 1Password
-        uses: 1password/load-secrets-action@v3
+        uses: 1password/load-secrets-action@dafbe7cb03502b260e2b2893c753c352eee545bf # v3.2.1
         with:
           export-env: true
         env:
@@ -91,25 +91,25 @@ jobs:
           CLOUDFLARE_ZONE_ID: op://netcidr-deployment/cloudflare/zone_id
 
       - name: Set up Bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: "1"
 
       - name: Set up Rust (stable + aarch64-unknown-linux-musl)
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
         with:
           targets: aarch64-unknown-linux-musl
 
       - name: Set up Zig (cargo-lambda's cross linker)
-        uses: step-security/setup-zig@v2.2.1
+        uses: step-security/setup-zig@190f429650adf2a785549867b458a8a37b0077a4 # v2.2.1
         with:
           version: 0.13.0
 
       - name: Install cargo-lambda
-        uses: zerj9/setup-cargo-lambda@v0.1.1
+        uses: zerj9/setup-cargo-lambda@303bda14b6d3e285f2131217975156526bcde77b # v0.1.1
 
       - name: Set up SAM CLI
-        uses: aws-actions/setup-sam@v2
+        uses: aws-actions/setup-sam@f84ec7d548307efafe33230528756de3c5841a17 # v2
         with:
           use-installer: true
 
@@ -132,7 +132,7 @@ jobs:
           ls -lh target/lambda/lambda/bootstrap
 
       - name: Configure AWS credentials (OIDC)
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
         with:
           role-to-assume: ${{ env.AWS_ROLE_TO_ASSUME }}
           aws-region: ${{ env.AWS_REGION }}
