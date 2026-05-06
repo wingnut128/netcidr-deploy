@@ -101,41 +101,9 @@ jobs:
           targets: aarch64-unknown-linux-musl
 
       - name: Set up Zig (cargo-lambda's cross linker)
-        env:
-          ZIG_VERSION: 0.13.0
-          ZIG_SHA256: d45312e61ebcc48032b77bc4cf7fd6915c11fa16e4aad116b66c9468211230ea
-        run: |
-          set -euo pipefail
-
-          archive="zig-linux-x86_64-${ZIG_VERSION}.tar.xz"
-          install_dir="${RUNNER_TOOL_CACHE}/zig/${ZIG_VERSION}/x64"
-          tmp_dir="$(mktemp -d)"
-          trap 'rm -rf "$tmp_dir"' EXIT
-
-          urls=(
-            "https://ziglang.org/download/${ZIG_VERSION}/${archive}"
-            "https://pkg.machengine.org/zig/${ZIG_VERSION}/${archive}"
-          )
-
-          for url in "${urls[@]}"; do
-            echo "Downloading Zig ${ZIG_VERSION} from ${url}"
-            if curl --fail --location --retry 5 --retry-all-errors \
-              --connect-timeout 20 --max-time 300 \
-              --output "${tmp_dir}/${archive}" "$url"; then
-              break
-            fi
-          done
-
-          if [ ! -s "${tmp_dir}/${archive}" ]; then
-            echo "Failed to download Zig ${ZIG_VERSION}" >&2
-            exit 1
-          fi
-
-          echo "${ZIG_SHA256}  ${tmp_dir}/${archive}" | sha256sum --check --status
-          mkdir -p "$install_dir"
-          tar -xJf "${tmp_dir}/${archive}" --strip-components=1 -C "$install_dir"
-          echo "$install_dir" >> "$GITHUB_PATH"
-          "$install_dir/zig" version
+        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
+        with:
+          version: 0.13.0
 
       - name: Install cargo-lambda
         uses: zerj9/setup-cargo-lambda@303bda14b6d3e285f2131217975156526bcde77b # v0.1.1
