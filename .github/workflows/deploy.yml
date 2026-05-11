@@ -85,6 +85,7 @@ jobs:
           OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
           AWS_ROLE_TO_ASSUME: op://netcidr-deployment/aws-deploy-role/arn
           DATABASE_URL: op://netcidr-deployment/neon/connect_string
+          PAT_PEPPER: op://netcidr-deployment/pat-pepper/value
           OIDC_AUDIENCE: op://netcidr-deployment/gcp-client-id/client_id
           CERTIFICATE_ARN: op://netcidr-deployment/certificate/arn
           CLOUDFLARE_API_TOKEN: op://netcidr-deployment/cloudflare/api_token
@@ -165,6 +166,7 @@ jobs:
             --parameter-overrides \
               "AppName=$STACK_NAME" \
               "DatabaseUrl=$DATABASE_URL" \
+              "PatPepper=$PAT_PEPPER" \
               "OidcAudience=$OIDC_AUDIENCE" \
               "OidcAllowedEmails=$OIDC_ALLOWED_EMAILS" \
               "AdminEmails=$ADMIN_EMAILS" \

@@ -86,6 +86,7 @@ Outputs `RoleArn`. Save it into the 1Password vault as a new item:
 |---|---|---|
 | `AWS_ROLE_TO_ASSUME` | 1Password (`aws-deploy-role/arn`) | Sensitive-ish, central rotation |
 | `DatabaseUrl` | 1Password (`neon/connect_string`) | Secret |
+| `PatPepper` | 1Password (`pat-pepper/value`) | Secret; stable PAT hashing pepper |
 | `OidcAudience` | 1Password (`gcp-client-id/client_id`) | Secret-ish (treat as such) |
 | `CertificateArn` | 1Password (`certificate/arn`) | Sensitive-ish |
 | `CLOUDFLARE_API_TOKEN` | 1Password (`cloudflare/api_token`) | Secret — `Zone:DNS:Edit` only |
@@ -112,6 +113,7 @@ Both `aws/samconfig.toml` and `aws/samconfig.toml.tpl` are gitignored.
 | Parameter | Where it goes | Notes |
 |---|---|---|
 | `DatabaseUrl` | samconfig | Neon connection string with `?sslmode=require` |
+| `PatPepper` | samconfig | Stable base64url-no-pad secret for `NETCIDR_PAT_PEPPER`; changing it invalidates existing PATs |
 | `OidcAudience` | samconfig | Google OAuth Web Client ID — also the dashboard's `VITE_OAUTH_WEB_CLIENT_ID` |
 | `OidcAllowedEmails` | samconfig | Comma-separated email allowlist for `/ipam/*` |
 | `PublicHostname` | samconfig | The hostname users hit (e.g. `netcidr.cloudreaper.dev`) |

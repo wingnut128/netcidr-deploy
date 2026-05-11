@@ -16,6 +16,7 @@ confirm_changeset = true
 fail_on_empty_changeset = false
 parameter_overrides = """\
   DatabaseUrl=\"postgres://USER:PASS@HOST/netcidr?sslmode=require\" \
+  PatPepper=\"BASE64URL-NO-PAD-32-BYTE-SECRET\" \
   OidcAudience=\"YOUR-WEB-CLIENT-ID.apps.googleusercontent.com\" \
   OidcAllowedEmails=\"you@example.com\" \
   AdminEmails=\"you@example.com\" \
