@@ -53,7 +53,9 @@ just doctor
 
 # 4. Stand up Neon (manually for now, or via the Neon MCP if wired in
 #    Claude Code). Grab the connection string and paste it into
-#    samconfig.toml under DatabaseUrl.
+#    samconfig.toml under DatabaseUrl. Generate one stable PAT pepper and
+#    paste it into PatPepper:
+#    openssl rand -base64 32 | tr '+/' '-_' | tr -d '='
 
 # 5. Provision the ACM cert (one-time — auto-validates against Cloudflare DNS)
 op run --env-file=.env -- just cert-bootstrap
@@ -71,7 +73,7 @@ After that, `just ship` rebuilds + redeploys + syncs DNS in one shot.
 ```
 aws/
 ├── template.yaml              SAM/CloudFormation: Lambda + Function URL + log group
-├── samconfig.toml.example     Stack parameters (DatabaseUrl, OidcAudience, …)
+├── samconfig.toml.example     Stack parameters (DatabaseUrl, PatPepper, OidcAudience, …)
 ├── .env.example               Cloudflare token + zone for the DNS sync
 ├── justfile                   Recipes: install-tools, build, deploy, ship, destroy
 └── cloudflare/
@@ -93,6 +95,8 @@ These are one-time clicks not worth automating:
   redirect URIs". The client ID goes into `OidcAudience`.
 - **Neon project.** Create at [neon.tech](https://neon.tech) → grab the
   pooled connection string → paste into `DatabaseUrl`.
+- **PAT pepper.** Generate one base64url-no-pad value and paste it into
+  `PatPepper`. Keep it stable; changing it invalidates existing PATs.
 - **Cloudflare API token.** Zone-level token with `Zone:DNS:Edit`. Paste
   into `.env`.
 
