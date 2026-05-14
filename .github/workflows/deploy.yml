@@ -139,7 +139,7 @@ jobs:
           "$install_dir/zig" version
 
       - name: Install cargo-lambda
-        uses: zerj9/setup-cargo-lambda@303bda14b6d3e285f2131217975156526bcde77b # v0.1.1
+        uses: zerj9/setup-cargo-lambda@0e3fc757cbb70387ecba326fd28ab729c2a5ce7a # v0.1.2
 
       - name: Set up SAM CLI
         uses: aws-actions/setup-sam@89ddb14d60e682855e3fea4be85b3c56485de310 # v3
