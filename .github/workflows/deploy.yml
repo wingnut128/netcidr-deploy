@@ -15,7 +15,7 @@ name: Deploy
 #     token stored as repo secret OP_SERVICE_ACCOUNT_TOKEN
 #   - GitHub OIDC provider + IAM role provisioned via aws/oidc-bootstrap.yaml
 #   - Repo secrets: OP_SERVICE_ACCOUNT_TOKEN
-#   - Repo variables: AWS_REGION, PUBLIC_HOSTNAME, OIDC_ALLOWED_EMAILS, ADMIN_EMAILS
+#   - Repo variables: AWS_REGION, PUBLIC_HOSTNAME
 
 on:
   workflow_dispatch:
@@ -184,8 +184,6 @@ jobs:
         env:
           STACK_NAME: ${{ env.STACK_NAME }}
           REGION: ${{ env.AWS_REGION }}
-          OIDC_ALLOWED_EMAILS: ${{ vars.OIDC_ALLOWED_EMAILS }}
-          ADMIN_EMAILS: ${{ vars.ADMIN_EMAILS }}
           PUBLIC_HOSTNAME: ${{ vars.PUBLIC_HOSTNAME }}
         run: |
           sam deploy \
@@ -200,8 +198,6 @@ jobs:
               "DatabaseUrl=$DATABASE_URL" \
               "PatPepper=$PAT_PEPPER" \
               "OidcAudience=$OIDC_AUDIENCE" \
-              "OidcAllowedEmails=$OIDC_ALLOWED_EMAILS" \
-              "AdminEmails=$ADMIN_EMAILS" \
               "PublicHostname=$PUBLIC_HOSTNAME" \
               "CertificateArn=$CERTIFICATE_ARN"
 

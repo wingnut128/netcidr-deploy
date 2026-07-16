@@ -25,17 +25,6 @@ Parameters:
       Google OAuth 2.0 Web Client ID. The dashboard signs users in against
       this client; the Lambda validates that ID tokens carry it as their
       `aud` claim.
-  OidcAllowedEmails:
-    Type: String
-    Default: ""
-    Description: |
-      Comma-separated email allowlist gating /ipam/*. Empty = no allowlist.
-  AdminEmails:
-    Type: String
-    Default: ""
-    Description: |
-      Comma-separated emails with administrative access (currently:
-      view the allowlist at /admin/allowlist). Subset of OidcAllowedEmails.
   PublicHostname:
     Type: String
     Description: |
@@ -75,8 +64,13 @@ Resources:
         Variables:
           NETCIDR_AUTH_MODE: oidc
           NETCIDR_OIDC_AUDIENCE: !Ref OidcAudience
-          NETCIDR_OIDC_ALLOWED_EMAILS: !Ref OidcAllowedEmails
-          NETCIDR_ADMIN_EMAILS: !Ref AdminEmails
+          # Sign-in is gated by the users directory in the database
+          # (netcidr ADR-0006); manage users via the dashboard Users page
+          # or `netcidr admin user`. The email env vars were one-shot
+          # bootstrap seeds and have been removed after the v0.28.0 seed
+          # ran; `closed` pins the allowlist mode so their absence cannot
+          # flip the deployment open.
+          NETCIDR_ALLOWLIST_MODE: closed
           NETCIDR_DATABASE_URL: !Ref DatabaseUrl
           NETCIDR_PAT_PEPPER: !Ref PatPepper
           NETCIDR_IPAM_BACKEND: postgres

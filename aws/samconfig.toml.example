@@ -14,12 +14,18 @@ resolve_s3 = true
 capabilities = "CAPABILITY_IAM"
 confirm_changeset = true
 fail_on_empty_changeset = false
+# Note (netcidr >= 0.28): who may sign in lives in the users directory in
+# the database, managed at runtime via the dashboard Users page. The
+# template pins NETCIDR_ALLOWLIST_MODE=closed. Fresh installs must create
+# the first platform admin: temporarily add a NETCIDR_ADMIN_EMAILS env var
+# to the function for the FIRST boot (one-shot seed), then remove it — or
+# insert the row directly:
+#   INSERT INTO users (email, role, status, created_at, updated_at, created_by)
+#   VALUES ('<you>', 'platform_admin', 'active', now()::text, now()::text, 'bootstrap');
 parameter_overrides = """\
   DatabaseUrl=\"postgres://USER:PASS@HOST/netcidr?sslmode=require\" \
   PatPepper=\"BASE64URL-NO-PAD-32-BYTE-SECRET\" \
   OidcAudience=\"YOUR-WEB-CLIENT-ID.apps.googleusercontent.com\" \
-  OidcAllowedEmails=\"you@example.com\" \
-  AdminEmails=\"you@example.com\" \
   PublicHostname=\"netcidr.example.com\" \
   CertificateArn=\"arn:aws:acm:us-east-1:111111111111:certificate/...\"\
 """
