@@ -74,7 +74,7 @@ Outputs `RoleArn`. Save it into the 1Password vault as a new item:
 
 **3. Configure GitHub repo settings (Settings → Secrets and variables → Actions):**
 - **Secrets**: `OP_SERVICE_ACCOUNT_TOKEN`
-- **Variables**: `AWS_REGION`, `PUBLIC_HOSTNAME`, `OIDC_ALLOWED_EMAILS`, `ADMIN_EMAILS`, `CLOUDFLARE_RECORD_NAME`
+- **Variables**: `AWS_REGION`, `PUBLIC_HOSTNAME`, `CLOUDFLARE_RECORD_NAME`
 
 **4. Trigger** (any of):
 - Actions → "Deploy" → Run workflow (manual, optional `netcidr_ref` override).
@@ -92,7 +92,7 @@ Outputs `RoleArn`. Save it into the 1Password vault as a new item:
 | `CLOUDFLARE_API_TOKEN` | 1Password (`cloudflare/api_token`) | Secret — `Zone:DNS:Edit` only |
 | `CLOUDFLARE_ZONE_ID` | 1Password (`cloudflare/zone_id`) | Not really sensitive, but kept with token |
 | `CLOUDFLARE_RECORD_NAME` | Repo variable | Subdomain only (e.g. `netcidr`) — public |
-| `AWS_REGION`, `PublicHostname`, `OidcAllowedEmails`, `AdminEmails` | Repo variables | Not sensitive, easy to read in run logs |
+| `AWS_REGION`, `PublicHostname` | Repo variables | Not sensitive, easy to read in run logs |
 | `OP_SERVICE_ACCOUNT_TOKEN` | Repo secret | Required to bootstrap 1Password reads |
 
 Vault paths in the workflow exactly mirror those in `aws/samconfig.toml.tpl` so a single rotation in 1Password updates both local (`op inject`) and CI flows.
@@ -115,7 +115,7 @@ Both `aws/samconfig.toml` and `aws/samconfig.toml.tpl` are gitignored.
 | `DatabaseUrl` | samconfig | Neon connection string with `?sslmode=require` |
 | `PatPepper` | samconfig | Stable base64url-no-pad secret for `NETCIDR_PAT_PEPPER`; changing it invalidates existing PATs |
 | `OidcAudience` | samconfig | Google OAuth Web Client ID — also the dashboard's `VITE_OAUTH_WEB_CLIENT_ID` |
-| `OidcAllowedEmails` | samconfig | Comma-separated email allowlist for `/ipam/*` |
+| _(access control)_ | database | Who may sign in lives in netcidr's users directory (ADR-0006), managed at runtime via the dashboard Users page or `netcidr admin user`. The Lambda pins `NETCIDR_ALLOWLIST_MODE=closed` in `template.yaml`. |
 | `PublicHostname` | samconfig | The hostname users hit (e.g. `netcidr.cloudreaper.dev`) |
 | `CertificateArn` | samconfig | ACM cert ARN — must be in **us-east-1** (CloudFront constraint), regardless of stack region |
 | `CLOUDFLARE_API_TOKEN` | .env | Token needs `Zone:DNS:Edit` |
