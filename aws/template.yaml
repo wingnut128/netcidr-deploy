@@ -96,6 +96,61 @@ Resources:
       LogGroupName: !Sub "/aws/lambda/${AppName}"
       RetentionInDays: !Ref LogRetentionDays
 
+  # Destination for CloudFront standard (access) logs. CloudFront doesn't
+  # charge extra for logging — the only cost is S3 storage/requests, which
+  # at personal-tool traffic is pennies a month. Deliberately NOT using
+  # CloudFront real-time logs: those require a Kinesis Data Stream, which
+  # bills a fixed ~$0.015/hr shard-hour (~$11/mo) regardless of traffic,
+  # same category of always-on cost this stack avoids elsewhere (no Origin
+  # Shield, no Lambda@Edge).
+  #
+  # LogDeliveryWrite requires ACLs to stay enabled (BucketOwnerPreferred,
+  # not BucketOwnerEnforced) — that's how CloudFront's log delivery group
+  # is granted write access. It's a distinct internal AWS grant, not a
+  # "public" grant, so it's unaffected by PublicAccessBlockConfiguration.
+  NetcidrCloudFrontLogsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${AppName}-cloudfront-logs-${AWS::AccountId}"
+      AccessControl: LogDeliveryWrite
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerPreferred
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireLogs
+            Status: Enabled
+            ExpirationInDays: !Ref LogRetentionDays
+
+  # Belt-and-suspenders on top of PublicAccessBlockConfiguration: explicitly
+  # deny any access over plain HTTP, since these logs contain client IPs.
+  NetcidrCloudFrontLogsBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref NetcidrCloudFrontLogsBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: "*"
+            Action: "s3:*"
+            Resource:
+              - !GetAtt NetcidrCloudFrontLogsBucket.Arn
+              - !Sub "${NetcidrCloudFrontLogsBucket.Arn}/*"
+            Condition:
+              Bool:
+                aws:SecureTransport: false
+
   # CloudFront sits between Cloudflare and the Lambda Function URL.
   #
   # Why: Lambda's Function URL only answers requests where TLS SNI matches
@@ -148,6 +203,13 @@ Resources:
           AcmCertificateArn: !Ref CertificateArn
           SslSupportMethod: sni-only
           MinimumProtocolVersion: TLSv1.2_2021
+        # Standard access logs (request path, status, bytes, client IP,
+        # cache result, …) delivered to NetcidrCloudFrontLogsBucket within
+        # ~an hour. See that resource's comment for the cost rationale.
+        Logging:
+          Bucket: !GetAtt NetcidrCloudFrontLogsBucket.DomainName
+          Prefix: cf-logs/
+          IncludeCookies: false
 
 Outputs:
   CloudFrontDomain:
@@ -162,3 +224,6 @@ Outputs:
     Value: !Ref NetcidrFunction
   LogGroup:
     Value: !Ref NetcidrLogGroup
+  CloudFrontLogsBucket:
+    Description: S3 bucket receiving CloudFront standard access logs.
+    Value: !Ref NetcidrCloudFrontLogsBucket
