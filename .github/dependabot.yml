@@ -4,3 +4,18 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    # Roll every Actions version bump into a single weekly PR.
+    #
+    # Branch protection on main requires a CODEOWNERS review, and
+    # CODEOWNERS is a single person — so each ungrouped Dependabot PR
+    # is an independent manual approval. Left ungrouped, a handful of
+    # patch bumps a week outpaces the review and the queue stalls
+    # (five sat open for up to four weeks before this change).
+    #
+    # This groups version updates only. Dependabot still opens
+    # security updates as their own immediate PRs, which is what we
+    # want — those shouldn't wait for the weekly batch.
+    groups:
+      github-actions:
+        patterns:
+          - "*"
