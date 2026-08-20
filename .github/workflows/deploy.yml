@@ -96,8 +96,19 @@ jobs:
         with:
           version: 0.13.0
 
+      # Installed via taiki-e/install-action — the canonical prebuilt-binary
+      # installer already used for Rust tooling elsewhere. It replaced
+      # zerj9/setup-cargo-lambda, a 2-star single-maintainer wrapper last
+      # touched in Jan 2025 whose only job was downloading this same
+      # release. cargo-lambda itself is well maintained; only the wrapper
+      # was the weak link.
+      #
+      # cargo-lambda is pinned to the version the old action defaulted to,
+      # so this changes how the binary is installed, not which one.
       - name: Install cargo-lambda
-        uses: zerj9/setup-cargo-lambda@0e3fc757cbb70387ecba326fd28ab729c2a5ce7a # v0.1.2
+        uses: taiki-e/install-action@5b4d68e2e660441203ab128a23676f1e4faf1532 # v2.86.3
+        with:
+          tool: cargo-lambda@1.3.0
 
       - name: Set up SAM CLI
         uses: aws-actions/setup-sam@89ddb14d60e682855e3fea4be85b3c56485de310 # v3
@@ -113,7 +124,7 @@ jobs:
       # first step that needs a secret. `export-env: true` puts these in
       # the job environment for every subsequent step, so every
       # third-party action that runs earlier (setup-bun, rust-toolchain,
-      # setup-zig, setup-cargo-lambda, setup-sam) does its work before
+      # setup-zig, install-action, setup-sam) does its work before
       # any credential exists to read. harden-runner runs in `audit`
       # mode, which logs egress but does not block it, so keeping this
       # window small is the actual control.
