@@ -129,7 +129,8 @@ Both `aws/samconfig.toml` and `aws/samconfig.toml.tpl` are gitignored.
 - **No CloudFront Origin Shield, no Lambda@Edge.** Both have separate cost. Not needed here.
 - **`OriginRequestPolicy: AllViewerExceptHostHeader`** strips Host before forwarding to Lambda. Lambda Function URLs match by URL, but reject any Host that isn't theirs.
 - **Rate limiter disabled in Lambda.** `tower_governor` needs `ConnectInfo<SocketAddr>`, which `lambda_http::run` doesn't provide — `rate_limit_per_second = 0` in the Lambda's `ServerConfig` skips the layer. AWS Lambda's own concurrency controls cover throttling.
-- **`sqlx` built with `tls-rustls`.** Neon (any cloud Postgres) requires TLS. Pure Rust, no system openssl dep — keeps the static musl Lambda build clean.
+- **`sqlx` built with `tls-rustls`.** Neon (any cloud Postgres) requires TLS. Pure Rust, no system openssl dep — nothing for the cross-compile to link against.
+- **The Lambda binary is glibc, not musl.** `cargo lambda build --arm64` passes no explicit `--target`, so it resolves to `aarch64-unknown-linux-gnu` (`TARGET_ARM` in cargo-lambda's `target_arch.rs`). This works because Zig links against an older glibc than the build host has — bridging ubuntu's 2.39 (or macOS locally) down to AL2023's 2.34. Cross-compiling is unavoidable in both paths: CI is x86_64 Linux and Lambda is arm64 Linux; local dev is arm64 macOS. That's why `just install-tools` installs Zig.
 
 ## Common operations
 
