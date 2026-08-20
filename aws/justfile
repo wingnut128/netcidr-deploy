@@ -52,6 +52,7 @@ doctor:
 # in scope so Vite bakes the Google OAuth client ID into the bundle —
 # without it, the dashboard treats auth as "disabled" and renders the
 # IPAM tab with a generic Unauthorized error instead of the sign-in card.
+[doc("Build the dashboard SPA (bakes the OAuth client ID into the bundle).")]
 dashboard:
     @if [ -z "${VITE_OAUTH_WEB_CLIENT_ID:-}" ]; then \
         echo "[WARN] VITE_OAUTH_WEB_CLIENT_ID not set — IPAM sign-in will not work."; \
@@ -70,6 +71,7 @@ dashboard:
 # include_str! reads dashboard/dist/index.html at compile time.
 # Produces target/lambda/lambda/bootstrap which template.yaml's CodeUri
 # points at.
+[doc("Build the Lambda binary (arm64 gnu, glibc 2.28 floor).")]
 build: dashboard
     @echo "[INFO] Building netcidr Lambda binary (arm64, glibc 2.28 floor)..."
     cd {{netcidr_dir}} && \
@@ -88,6 +90,7 @@ validate:
 # Outputs RoleArn — paste into the repo secret AWS_ROLE_TO_ASSUME.
 # If the GitHub OIDC provider already exists in this account, pass
 # CreateOidcProvider=false: `just oidc-bootstrap false`.
+[doc("One-time: deploy the OIDC trust + IAM role for GitHub Actions.")]
 oidc-bootstrap create_provider="true":
     aws cloudformation deploy \
         --template-file oidc-bootstrap.yaml \
@@ -105,6 +108,7 @@ oidc-bootstrap create_provider="true":
 # If samconfig.toml.tpl exists, render it via `op inject` first (1Password
 # CLI), deploy, then delete the rendered samconfig.toml on exit — even if
 # the deploy fails. The plaintext file never sticks around.
+[doc("Build, validate, and `sam deploy` (renders samconfig.toml.tpl if present).")]
 deploy: build validate
     @if [ -f samconfig.toml.tpl ]; then \
         echo "→ Rendering samconfig.toml from .tpl via op inject…"; \
@@ -118,12 +122,14 @@ deploy: build validate
 # First-time guided deploy (writes/updates samconfig.toml interactively).
 # This bypasses the .tpl flow on purpose so the resulting file stays on
 # disk for review/edit before being copied into a .tpl.
+[doc("First-time guided deploy (writes samconfig.toml interactively).")]
 deploy-guided: build validate
     sam deploy --guided --region {{region}}
 
 # Remove a rendered samconfig.toml. Safe to run any time; no-op if the
 # file already doesn't exist. Useful if `just deploy` was interrupted in
 # a way the trap missed.
+[doc("Remove a rendered samconfig.toml (the .tpl is preserved).")]
 clean-config:
     @rm -f samconfig.toml
     @echo "✓ Removed samconfig.toml (template at samconfig.toml.tpl is preserved)."
@@ -134,6 +140,7 @@ cloudflare-sync:
 
 # One-time: provision an ACM cert for the public hostname and validate
 # it via Cloudflare DNS. Prints the cert ARN to paste into samconfig.
+[doc("One-time: provision an ACM cert, auto-validated via Cloudflare DNS.")]
 cert-bootstrap:
     @bash cloudflare/bootstrap-cert.sh
 
@@ -174,6 +181,7 @@ console:
 # Delete the CloudFormation stack (Lambda, Function URL, log group).
 # Cloudflare CNAME is left in place — remove via dashboard if you
 # also want to drop the DNS record.
+[doc("Delete the CloudFormation stack (prompts first; leaves DNS alone).")]
 destroy:
     @read -p "Delete stack '{{stack}}' in {{region}}? [y/N] " ans; \
         [[ "$ans" == "y" || "$ans" == "Y" ]] || { echo "Aborted."; exit 1; }
