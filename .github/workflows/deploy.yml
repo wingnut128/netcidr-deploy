@@ -73,24 +73,6 @@ jobs:
           ref: ${{ env.NETCIDR_REF }}
           path: netcidr
 
-      # Pull deploy secrets from 1Password into env vars. Mirrors the
-      # `op://netcidr-deployment/...` references in samconfig.toml.tpl.
-      # The service account's token is the only credential GitHub holds;
-      # everything else lives in the vault.
-      - name: Load secrets from 1Password
-        uses: 1password/load-secrets-action@e544b780808654ba8ceba5fb2fe2897103d92ff4 # v5.0.0
-        with:
-          export-env: true
-        env:
-          OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
-          AWS_ROLE_TO_ASSUME: op://netcidr-deployment/aws-deploy-role/arn
-          DATABASE_URL: op://netcidr-deployment/neon/connect_string
-          PAT_PEPPER: op://netcidr-deployment/pat-pepper/value
-          OIDC_AUDIENCE: op://netcidr-deployment/gcp-client-id/client_id
-          CERTIFICATE_ARN: op://netcidr-deployment/certificate/arn
-          CLOUDFLARE_API_TOKEN: op://netcidr-deployment/cloudflare/api_token
-          CLOUDFLARE_ZONE_ID: op://netcidr-deployment/cloudflare/zone_id
-
       - name: Set up Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
@@ -121,6 +103,33 @@ jobs:
         uses: aws-actions/setup-sam@89ddb14d60e682855e3fea4be85b3c56485de310 # v3
         with:
           use-installer: true
+
+      # Pull deploy secrets from 1Password into env vars. Mirrors the
+      # `op://netcidr-deployment/...` references in samconfig.toml.tpl.
+      # The service account's token is the only credential GitHub holds;
+      # everything else lives in the vault.
+      #
+      # Deliberately placed as late as possible — immediately before the
+      # first step that needs a secret. `export-env: true` puts these in
+      # the job environment for every subsequent step, so every
+      # third-party action that runs earlier (setup-bun, rust-toolchain,
+      # setup-zig, setup-cargo-lambda, setup-sam) does its work before
+      # any credential exists to read. harden-runner runs in `audit`
+      # mode, which logs egress but does not block it, so keeping this
+      # window small is the actual control.
+      - name: Load secrets from 1Password
+        uses: 1password/load-secrets-action@e544b780808654ba8ceba5fb2fe2897103d92ff4 # v5.0.0
+        with:
+          export-env: true
+        env:
+          OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
+          AWS_ROLE_TO_ASSUME: op://netcidr-deployment/aws-deploy-role/arn
+          DATABASE_URL: op://netcidr-deployment/neon/connect_string
+          PAT_PEPPER: op://netcidr-deployment/pat-pepper/value
+          OIDC_AUDIENCE: op://netcidr-deployment/gcp-client-id/client_id
+          CERTIFICATE_ARN: op://netcidr-deployment/certificate/arn
+          CLOUDFLARE_API_TOKEN: op://netcidr-deployment/cloudflare/api_token
+          CLOUDFLARE_ZONE_ID: op://netcidr-deployment/cloudflare/zone_id
 
       - name: Build dashboard SPA
         working-directory: netcidr/dashboard
