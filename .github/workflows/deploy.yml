@@ -78,10 +78,15 @@ jobs:
         with:
           bun-version: "1"
 
-      - name: Set up Rust (stable + aarch64-unknown-linux-musl)
+      # gnu, not musl: `cargo lambda build --arm64` with no explicit
+      # --target resolves to aarch64-unknown-linux-gnu (TARGET_ARM in
+      # cargo-lambda's target_arch.rs). Zig is what makes a glibc target
+      # safe here — it links against an older glibc than the runner's,
+      # bridging ubuntu's 2.39 down to AL2023's 2.34.
+      - name: Set up Rust (stable + aarch64-unknown-linux-gnu)
         uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
         with:
-          targets: aarch64-unknown-linux-musl
+          targets: aarch64-unknown-linux-gnu
 
       # Zig is cargo-lambda's cross-linker (via cargo-zigbuild). Pinned to
       # 0.13.0 deliberately — newer Zig has broken cargo-zigbuild before.
@@ -153,7 +158,7 @@ jobs:
           bun install --frozen-lockfile
           bun run build
 
-      - name: Build Lambda binary (arm64 musl)
+      - name: Build Lambda binary (arm64 gnu)
         working-directory: netcidr
         run: |
           cargo lambda build --release --arm64 \

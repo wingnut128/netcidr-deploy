@@ -59,7 +59,9 @@ dashboard:
     fi
     cd {{netcidr_dir}}/dashboard && bun install --frozen-lockfile && bun run build
 
-# Build the Lambda binary (arm64 musl) from the netcidr source repo.
+# Build the Lambda binary (arm64 gnu) from the netcidr source repo.
+# `--arm64` resolves to aarch64-unknown-linux-gnu; Zig cross-links it
+# against an older glibc so it runs on AL2023.
 # Depends on `dashboard` so the embedded SPA is fresh — cargo's
 # include_str! reads dashboard/dist/index.html at compile time.
 # Produces target/lambda/lambda/bootstrap which template.yaml's CodeUri
