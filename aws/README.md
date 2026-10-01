@@ -93,6 +93,17 @@ These are one-time clicks not worth automating:
   Credentials). Add your Cloudflare-fronted hostname to "Authorized
   JavaScript origins" and `https://<host>/auth/callback` to "Authorized
   redirect URIs". The client ID goes into `OidcAudience`.
+- **Google OAuth Desktop Client** (optional, enables `netcidr login`).
+  In the same Google Cloud project, create a second OAuth client of type
+  **Desktop app**. It needs no redirect URIs, because the CLI uses a loopback
+  redirect. Put its client ID and secret in `OidcCliClientId` and
+  `OidcCliClientSecret`, or in the 1Password item
+  `netcidr-deployment/gcp-cli-client` (fields `client_id` and
+  `client_secret`) for CI. The template appends the client ID to
+  `NETCIDR_OIDC_AUDIENCE` itself, so leave `OidcAudience` as the Web client
+  ID only. If both values are left empty, CLI login stays off and the CLI
+  falls back to `NETCIDR_API_TOKEN`. To check it worked, look for an
+  `"auth"` block in `GET https://<host>/features`.
 - **Neon project.** Create at [neon.tech](https://neon.tech) → grab the
   pooled connection string → paste into `DatabaseUrl`.
 - **PAT pepper.** Generate one base64url-no-pad value and paste it into

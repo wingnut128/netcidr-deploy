@@ -25,6 +25,22 @@ Parameters:
       Google OAuth 2.0 Web Client ID. The dashboard signs users in against
       this client; the Lambda validates that ID tokens carry it as their
       `aud` claim.
+  OidcCliClientId:
+    Type: String
+    Default: ""
+    Description: |
+      Google OAuth "Desktop app" client ID used by `netcidr login`. When set
+      together with OidcCliClientSecret, the server advertises it on
+      /features and it is appended to the accepted ID-token audiences. Empty
+      leaves CLI login disabled (the CLI falls back to NETCIDR_API_TOKEN).
+  OidcCliClientSecret:
+    Type: String
+    NoEcho: true
+    Default: ""
+    Description: |
+      Client secret of the Desktop-app client. Non-confidential by design
+      (RFC 8252 s8.5; PKCE secures the exchange) and served publicly on
+      /features, but kept in 1Password like every other deploy value.
   PublicHostname:
     Type: String
     Description: |
@@ -41,6 +57,13 @@ Parameters:
     Type: Number
     Default: 14
     AllowedValues: [1, 3, 5, 7, 14, 30, 60, 90, 180, 365]
+
+Conditions:
+  # CLI login needs both halves of the Desktop-app client; one without the
+  # other is treated as "not configured" so a half-set deploy stays inert.
+  HasCliClient: !And
+    - !Not [!Equals [!Ref OidcCliClientId, ""]]
+    - !Not [!Equals [!Ref OidcCliClientSecret, ""]]
 
 Globals:
   Function:
@@ -63,7 +86,15 @@ Resources:
       Environment:
         Variables:
           NETCIDR_AUTH_MODE: oidc
-          NETCIDR_OIDC_AUDIENCE: !Ref OidcAudience
+          # The Web client ID stays a single value (the dashboard bakes it
+          # in as VITE_OAUTH_WEB_CLIENT_ID); the Desktop client is appended
+          # here so CLI-minted ID tokens are accepted too.
+          NETCIDR_OIDC_AUDIENCE: !If
+            - HasCliClient
+            - !Sub "${OidcAudience},${OidcCliClientId}"
+            - !Ref OidcAudience
+          NETCIDR_OIDC_CLI_CLIENT_ID: !If [HasCliClient, !Ref OidcCliClientId, !Ref AWS::NoValue]
+          NETCIDR_OIDC_CLI_CLIENT_SECRET: !If [HasCliClient, !Ref OidcCliClientSecret, !Ref AWS::NoValue]
           # Sign-in is gated by the users directory in the database
           # (netcidr ADR-0006); manage users via the dashboard Users page
           # or `netcidr admin user`. The email env vars were one-shot

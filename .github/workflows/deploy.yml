@@ -145,6 +145,10 @@ jobs:
           DATABASE_URL: op://netcidr-deployment/neon/connect_string
           PAT_PEPPER: op://netcidr-deployment/pat-pepper/value
           OIDC_AUDIENCE: op://netcidr-deployment/gcp-client-id/client_id
+          # Desktop-app OAuth client for `netcidr login` (separate from the
+          # dashboard's Web client above).
+          OIDC_CLI_CLIENT_ID: op://netcidr-deployment/gcp-cli-client/client_id
+          OIDC_CLI_CLIENT_SECRET: op://netcidr-deployment/gcp-cli-client/client_secret
           CERTIFICATE_ARN: op://netcidr-deployment/certificate/arn
           CLOUDFLARE_API_TOKEN: op://netcidr-deployment/cloudflare/api_token
           CLOUDFLARE_ZONE_ID: op://netcidr-deployment/cloudflare/zone_id
@@ -209,6 +213,8 @@ jobs:
               "DatabaseUrl=$DATABASE_URL" \
               "PatPepper=$PAT_PEPPER" \
               "OidcAudience=$OIDC_AUDIENCE" \
+              "OidcCliClientId=$OIDC_CLI_CLIENT_ID" \
+              "OidcCliClientSecret=$OIDC_CLI_CLIENT_SECRET" \
               "PublicHostname=$PUBLIC_HOSTNAME" \
               "CertificateArn=$CERTIFICATE_ARN"
 

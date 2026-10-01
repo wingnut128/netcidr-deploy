@@ -26,6 +26,8 @@ parameter_overrides = """\
   DatabaseUrl=\"postgres://USER:PASS@HOST/netcidr?sslmode=require\" \
   PatPepper=\"BASE64URL-NO-PAD-32-BYTE-SECRET\" \
   OidcAudience=\"YOUR-WEB-CLIENT-ID.apps.googleusercontent.com\" \
+  OidcCliClientId=\"YOUR-DESKTOP-CLIENT-ID.apps.googleusercontent.com\" \
+  OidcCliClientSecret=\"YOUR-DESKTOP-CLIENT-SECRET\" \
   PublicHostname=\"netcidr.example.com\" \
   CertificateArn=\"arn:aws:acm:us-east-1:111111111111:certificate/...\"\
 """
