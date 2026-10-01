@@ -202,9 +202,6 @@ jobs:
           STACK_NAME: ${{ env.STACK_NAME }}
           REGION: ${{ env.AWS_REGION }}
           PUBLIC_HOSTNAME: ${{ vars.PUBLIC_HOSTNAME }}
-          # "true" once CloudFront is sending X-Origin-Verify everywhere
-          # (see EnforceOriginSecret in template.yaml). Unset = "false".
-          ENFORCE_ORIGIN_SECRET: ${{ vars.ENFORCE_ORIGIN_SECRET || 'false' }}
         run: |
           sam deploy \
             --stack-name "$STACK_NAME" \
@@ -222,8 +219,7 @@ jobs:
               "OidcCliClientSecret=$OIDC_CLI_CLIENT_SECRET" \
               "PublicHostname=$PUBLIC_HOSTNAME" \
               "CertificateArn=$CERTIFICATE_ARN" \
-              "OriginVerifySecret=$ORIGIN_VERIFY_SECRET" \
-              "EnforceOriginSecret=$ENFORCE_ORIGIN_SECRET"
+              "OriginVerifySecret=$ORIGIN_VERIFY_SECRET"
 
       - name: Show stack outputs
         env:

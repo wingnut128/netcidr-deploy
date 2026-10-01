@@ -137,19 +137,18 @@ aws lambda invoke --function-name netcidr \
 
 The Function URL is public, so CloudFront proves each request came through
 it with a secret `X-Origin-Verify` header, and netcidr rejects requests
-without it (403). Roll it out in two deploys so no edge is caught without
-the header:
+without it (403). It is always on.
 
 1. Create the 1Password item `netcidr-deployment/origin-verify` with a
    `secret` field of at least 32 random characters (e.g.
    `openssl rand -base64 48 | tr -d '/+=' | cut -c1-48`), or set
    `OriginVerifySecret` in `samconfig.toml`.
-2. Deploy with `EnforceOriginSecret=false` (the default). CloudFront starts
-   sending the header; wait until the distribution's status is `Deployed`.
-3. Set the repo variable `ENFORCE_ORIGIN_SECRET=true` (or
-   `EnforceOriginSecret=true` locally) and deploy again.
-4. Check that the raw Function URL now refuses and the public hostname
-   still works:
+2. Deploy. The Lambda starts enforcing immediately, while CloudFront takes a
+   few minutes to roll the header out to every edge; requests through an
+   edge that hasn't caught up get 403 until it does. The same applies when
+   rotating the secret, so do either at a quiet moment.
+3. Once the distribution's status is `Deployed`, check that the raw
+   Function URL refuses and the public hostname works:
 
    ```sh
    fn_url=$(aws cloudformation describe-stacks --stack-name netcidr \

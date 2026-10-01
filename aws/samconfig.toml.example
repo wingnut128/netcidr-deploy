@@ -30,6 +30,5 @@ parameter_overrides = """\
   OidcCliClientSecret=\"YOUR-DESKTOP-CLIENT-SECRET\" \
   PublicHostname=\"netcidr.example.com\" \
   CertificateArn=\"arn:aws:acm:us-east-1:111111111111:certificate/...\" \
-  OriginVerifySecret=\"AT-LEAST-32-RANDOM-CHARS\" \
-  EnforceOriginSecret=\"false\"\
+  OriginVerifySecret=\"AT-LEAST-32-RANDOM-CHARS\"\
 """
