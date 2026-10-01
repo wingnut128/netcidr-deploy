@@ -16,6 +16,9 @@ name: Deploy
 #   - GitHub OIDC provider + IAM role provisioned via aws/oidc-bootstrap.yaml
 #   - Repo secrets: OP_SERVICE_ACCOUNT_TOKEN
 #   - Repo variables: AWS_REGION, PUBLIC_HOSTNAME
+#   - Optional repo variables: RATE_LIMIT_PER_SECOND (default 20),
+#     RATE_LIMIT_BURST (50), RESERVED_CONCURRENCY (0 = unreserved; needs
+#     an account concurrency limit above 10 to set)
 
 on:
   workflow_dispatch:
@@ -202,6 +205,12 @@ jobs:
           STACK_NAME: ${{ env.STACK_NAME }}
           REGION: ${{ env.AWS_REGION }}
           PUBLIC_HOSTNAME: ${{ vars.PUBLIC_HOSTNAME }}
+          # Always passed explicitly (defaults mirror template.yaml), so
+          # deleting a variable restores the default instead of leaving
+          # CloudFormation on the previous value.
+          RATE_LIMIT_PER_SECOND: ${{ vars.RATE_LIMIT_PER_SECOND || '20' }}
+          RATE_LIMIT_BURST: ${{ vars.RATE_LIMIT_BURST || '50' }}
+          RESERVED_CONCURRENCY: ${{ vars.RESERVED_CONCURRENCY || '0' }}
         run: |
           sam deploy \
             --stack-name "$STACK_NAME" \
@@ -219,7 +228,10 @@ jobs:
               "OidcCliClientSecret=$OIDC_CLI_CLIENT_SECRET" \
               "PublicHostname=$PUBLIC_HOSTNAME" \
               "CertificateArn=$CERTIFICATE_ARN" \
-              "OriginVerifySecret=$ORIGIN_VERIFY_SECRET"
+              "OriginVerifySecret=$ORIGIN_VERIFY_SECRET" \
+              "RateLimitPerSecond=$RATE_LIMIT_PER_SECOND" \
+              "RateLimitBurst=$RATE_LIMIT_BURST" \
+              "ReservedConcurrency=$RESERVED_CONCURRENCY"
 
       - name: Show stack outputs
         env:

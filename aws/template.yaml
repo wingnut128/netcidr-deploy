@@ -77,8 +77,38 @@ Parameters:
       after ~5 idle minutes, so a frequent schedule keeps it running all
       day and eats the free tier. Hourly keeps it mostly asleep; TTLs are
       honored to within the interval.
+  RateLimitPerSecond:
+    Type: Number
+    Default: 20
+    MinValue: 0
+    MaxValue: 10000
+    Description: |
+      netcidr's per-client sustained rate (NETCIDR_RATE_LIMIT); 0 disables
+      it. The bucket lives in each Lambda execution environment's memory,
+      so the effective per-client limit is this times the number of warm
+      instances (see ReservedConcurrency).
+  RateLimitBurst:
+    Type: Number
+    Default: 50
+    MinValue: 1
+    MaxValue: 100000
+    Description: Per-client burst allowance (NETCIDR_RATE_LIMIT_BURST).
+  ReservedConcurrency:
+    Type: Number
+    Default: 0
+    MinValue: 0
+    Description: |
+      Reserved concurrency for the function; 0 (default) leaves it
+      unreserved. When set, it caps how many instances (and so how many
+      separate rate-limit buckets) can run at once, and bounds cost;
+      requests beyond it get 429 from Lambda. AWS keeps 10 concurrency
+      unreserved per account, so this needs an account limit above 10
+      (the default limit on this account is 10, which already caps the
+      function at 10 instances). Raise the Lambda "Concurrent executions"
+      quota first, then set e.g. 5.
 
 Conditions:
+  HasReservedConcurrency: !Not [!Equals [!Ref ReservedConcurrency, 0]]
   # CLI login needs both halves of the Desktop-app client; one without the
   # other is treated as "not configured" so a half-set deploy stays inert.
   HasCliClient: !And
@@ -103,6 +133,7 @@ Resources:
       FunctionName: !Ref AppName
       Handler: bootstrap
       CodeUri: ../../netcidr/target/lambda/lambda/
+      ReservedConcurrentExecutions: !If [HasReservedConcurrency, !Ref ReservedConcurrency, !Ref AWS::NoValue]
       Environment:
         Variables:
           NETCIDR_AUTH_MODE: oidc
@@ -131,6 +162,8 @@ Resources:
           # AllViewerExceptHostHeader policy below). X-Forwarded-For can't
           # be trusted here: CloudFront appends to whatever the client sent.
           NETCIDR_CLIENT_IP_SOURCE: header:cloudfront-viewer-address
+          NETCIDR_RATE_LIMIT: !Ref RateLimitPerSecond
+          NETCIDR_RATE_LIMIT_BURST: !Ref RateLimitBurst
           # Requests that didn't come through CloudFront get 403.
           NETCIDR_ORIGIN_SECRET: !Ref OriginVerifySecret
           # Lambda's `provided.al2023` runtime sets AWS_LAMBDA_LOG_LEVEL,
