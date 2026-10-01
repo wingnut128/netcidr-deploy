@@ -99,20 +99,44 @@ build: dashboard
 validate:
     sam validate --lint
 
-# One-time: deploy the OIDC trust + IAM role for GitHub Actions.
-# Outputs RoleArn — paste into the repo secret AWS_ROLE_TO_ASSUME.
-# If the GitHub OIDC provider already exists in this account, pass
-# CreateOidcProvider=false: `just oidc-bootstrap false`.
-[doc("One-time: deploy the OIDC trust + IAM role for GitHub Actions.")]
-oidc-bootstrap create_provider="true": _require-region
+# Deploy (or update) the OIDC trust + IAM role for GitHub Actions. Outputs
+# RoleArn — paste into the repo secret AWS_ROLE_TO_ASSUME. Safe to re-run.
+#
+# CreateOidcProvider is worked out by default ("auto"): "true" when this
+# stack already manages the account's GitHub OIDC provider or none exists,
+# "false" only when a provider exists that this stack doesn't own. Passing
+# "false" while the stack owns the provider used to delete it.
+[doc("Deploy/update the OIDC trust + IAM role for GitHub Actions (safe to re-run).")]
+oidc-bootstrap create_provider="auto": _require-region
+    #!/usr/bin/env bash
+    set -euo pipefail
+    stack=netcidr-deploy-gha-oidc
+    create="{{create_provider}}"
+    if [ "$create" = auto ]; then
+        owned=$(aws cloudformation describe-stack-resources \
+            --stack-name "$stack" --region {{region}} \
+            --logical-resource-id GitHubOidcProvider \
+            --query 'StackResources[0].PhysicalResourceId' --output text 2>/dev/null || true)
+        existing=$(aws iam list-open-id-connect-providers \
+            --query "OpenIDConnectProviderList[?ends_with(Arn, '/token.actions.githubusercontent.com')].Arn" \
+            --output text)
+        if [ -n "$owned" ] && [ "$owned" != None ]; then
+            create=true    # this stack manages it: keep managing it
+        elif [ -n "$existing" ]; then
+            create=false   # created elsewhere: leave it alone
+        else
+            create=true    # none in the account: create it
+        fi
+        echo "→ CreateOidcProvider=$create"
+    fi
     aws cloudformation deploy \
         --template-file oidc-bootstrap.yaml \
-        --stack-name netcidr-deploy-gha-oidc \
+        --stack-name "$stack" \
         --region {{region}} \
         --capabilities CAPABILITY_NAMED_IAM \
-        --parameter-overrides CreateOidcProvider={{create_provider}}
-    @aws cloudformation describe-stacks \
-        --stack-name netcidr-deploy-gha-oidc --region {{region}} \
+        --parameter-overrides CreateOidcProvider="$create"
+    aws cloudformation describe-stacks \
+        --stack-name "$stack" --region {{region}} \
         --query 'Stacks[0].Outputs[?OutputKey==`RoleArn`].OutputValue' \
         --output text
 

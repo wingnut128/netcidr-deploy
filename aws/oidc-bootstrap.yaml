@@ -30,9 +30,16 @@ Conditions:
   CreateProvider: !Equals [!Ref CreateOidcProvider, "true"]
 
 Resources:
+  # The provider is account-wide and every GitHub-OIDC role in the account
+  # depends on it. Retain it on delete, and when CreateOidcProvider flips to
+  # "false" on an update (which otherwise deletes a conditional resource):
+  # re-running the bootstrap with "false" once deleted it and broke every
+  # deploy. A retained provider is simply no longer managed by this stack.
   GitHubOidcProvider:
     Type: AWS::IAM::OIDCProvider
     Condition: CreateProvider
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       Url: https://token.actions.githubusercontent.com
       ClientIdList:
