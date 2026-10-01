@@ -121,6 +121,18 @@ just console            # open the CFN stack in the AWS console
 just destroy            # delete everything (prompts for confirmation)
 ```
 
+**Expiry sweep.** An EventBridge rule (`netcidr-expiry-sweep`, default
+`rate(1 hour)`, parameter `ExpirySweepSchedule`) invokes the Lambda so
+netcidr releases expired allocation reservations and prunes expired
+idempotency keys and PATs. Each run logs an `expiry sweep` line with counts
+(only when something changed). To run one now:
+
+```sh
+aws lambda invoke --function-name netcidr \
+  --payload '{"source":"aws.events","detail-type":"Scheduled Event","detail":{}}' \
+  --cli-binary-format raw-in-base64-out /dev/stdout
+```
+
 ## Tradeoffs
 
 - **No CloudFront.** Cloudflare proxies directly to the Function URL.
