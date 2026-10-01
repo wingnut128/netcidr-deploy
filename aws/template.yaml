@@ -53,6 +53,25 @@ Parameters:
       certs to live in us-east-1 regardless of the stack's region. Use
       `just cert-bootstrap` to provision and validate one against Cloudflare
       DNS, then paste the ARN here.
+  OriginVerifySecret:
+    Type: String
+    NoEcho: true
+    MinLength: 32
+    Description: |
+      Shared secret CloudFront sends to the Lambda as the X-Origin-Verify
+      header. With EnforceOriginSecret=true, netcidr rejects requests
+      without it (403), so the public Function URL can't be used to go
+      around CloudFront. At least 32 characters.
+  EnforceOriginSecret:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: |
+      Whether the Lambda requires X-Origin-Verify. Roll out in two deploys:
+      first with "false" so every CloudFront edge starts sending the header
+      (the distribution must reach Deployed), then "true". Enforcing in the
+      same deploy that adds the header 403s requests through edges that
+      haven't picked up the new config yet.
   LogRetentionDays:
     Type: Number
     Default: 14
@@ -69,6 +88,7 @@ Parameters:
       honored to within the interval.
 
 Conditions:
+  EnforceOrigin: !Equals [!Ref EnforceOriginSecret, "true"]
   # CLI login needs both halves of the Desktop-app client; one without the
   # other is treated as "not configured" so a half-set deploy stays inert.
   HasCliClient: !And
@@ -116,6 +136,13 @@ Resources:
           NETCIDR_PAT_PEPPER: !Ref PatPepper
           NETCIDR_IPAM_BACKEND: postgres
           NETCIDR_IPAM_ENABLED: "true"
+          # Rate-limit on the viewer address CloudFront puts in
+          # CloudFront-Viewer-Address (forwarded by the
+          # AllViewerExceptHostHeader policy below). X-Forwarded-For can't
+          # be trusted here: CloudFront appends to whatever the client sent.
+          NETCIDR_CLIENT_IP_SOURCE: header:cloudfront-viewer-address
+          # Requests that didn't come through CloudFront get 403.
+          NETCIDR_ORIGIN_SECRET: !If [EnforceOrigin, !Ref OriginVerifySecret, !Ref AWS::NoValue]
           # Lambda's `provided.al2023` runtime sets AWS_LAMBDA_LOG_LEVEL,
           # but our Rust app reads RUST_LOG.
           RUST_LOG: info,tower_http=warn
@@ -182,6 +209,12 @@ Resources:
             CustomOriginConfig:
               OriginProtocolPolicy: https-only
               OriginSSLProtocols: [TLSv1.2]
+            # Proves to the Lambda that a request came through CloudFront.
+            # CloudFront sets this on every origin request, replacing any
+            # viewer-sent header of the same name.
+            OriginCustomHeaders:
+              - HeaderName: X-Origin-Verify
+                HeaderValue: !Ref OriginVerifySecret
         DefaultCacheBehavior:
           TargetOriginId: lambda-origin
           ViewerProtocolPolicy: redirect-to-https
@@ -211,7 +244,7 @@ Outputs:
     Export:
       Name: !Sub "${AppName}-cloudfront-domain"
   FunctionUrl:
-    Description: Raw Lambda Function URL (origin behind CloudFront — bypass for diagnostics).
+    Description: Raw Lambda Function URL (CloudFront's origin). Returns 403 without X-Origin-Verify once EnforceOriginSecret=true.
     Value: !GetAtt NetcidrFunctionUrl.FunctionUrl
   FunctionName:
     Value: !Ref NetcidrFunction

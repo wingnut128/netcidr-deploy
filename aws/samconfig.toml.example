@@ -29,5 +29,7 @@ parameter_overrides = """\
   OidcCliClientId=\"YOUR-DESKTOP-CLIENT-ID.apps.googleusercontent.com\" \
   OidcCliClientSecret=\"YOUR-DESKTOP-CLIENT-SECRET\" \
   PublicHostname=\"netcidr.example.com\" \
-  CertificateArn=\"arn:aws:acm:us-east-1:111111111111:certificate/...\"\
+  CertificateArn=\"arn:aws:acm:us-east-1:111111111111:certificate/...\" \
+  OriginVerifySecret=\"AT-LEAST-32-RANDOM-CHARS\" \
+  EnforceOriginSecret=\"false\"\
 """
