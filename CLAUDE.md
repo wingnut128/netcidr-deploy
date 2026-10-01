@@ -88,6 +88,7 @@ Outputs `RoleArn`. Save it into the 1Password vault as a new item:
 | `DatabaseUrl` | 1Password (`neon/connect_string`) | Secret |
 | `PatPepper` | 1Password (`pat-pepper/value`) | Secret; stable PAT hashing pepper |
 | `OidcAudience` | 1Password (`gcp-client-id/client_id`) | Secret-ish (treat as such) |
+| `OidcCliClientId` / `OidcCliClientSecret` | 1Password (`gcp-cli-client/client_id`, `client_secret`) | Desktop-app client for `netcidr login`; secret is public by design (RFC 8252) but kept in the vault |
 | `CertificateArn` | 1Password (`certificate/arn`) | Sensitive-ish |
 | `CLOUDFLARE_API_TOKEN` | 1Password (`cloudflare/api_token`) | Secret — `Zone:DNS:Edit` only |
 | `CLOUDFLARE_ZONE_ID` | 1Password (`cloudflare/zone_id`) | Not really sensitive, but kept with token |
@@ -114,7 +115,8 @@ Both `aws/samconfig.toml` and `aws/samconfig.toml.tpl` are gitignored.
 |---|---|---|
 | `DatabaseUrl` | samconfig | Neon connection string with `?sslmode=require` |
 | `PatPepper` | samconfig | Stable base64url-no-pad secret for `NETCIDR_PAT_PEPPER`; changing it invalidates existing PATs |
-| `OidcAudience` | samconfig | Google OAuth Web Client ID — also the dashboard's `VITE_OAUTH_WEB_CLIENT_ID` |
+| `OidcAudience` | samconfig | Google OAuth Web Client ID — also the dashboard's `VITE_OAUTH_WEB_CLIENT_ID`. Keep it a single ID; the template appends the CLI client itself |
+| `OidcCliClientId` / `OidcCliClientSecret` | samconfig | Google OAuth **Desktop app** client for `netcidr login`. Both empty (the default) = CLI login off. When set, the server advertises it on `/features` and accepts its tokens |
 | _(access control)_ | database | Who may sign in lives in netcidr's users directory (ADR-0006), managed at runtime via the dashboard Users page or `netcidr admin user`. The Lambda pins `NETCIDR_ALLOWLIST_MODE=closed` in `template.yaml`. |
 | `PublicHostname` | samconfig | The hostname users hit (e.g. `netcidr.cloudreaper.dev`) |
 | `CertificateArn` | samconfig | ACM cert ARN — must be in **us-east-1** (CloudFront constraint), regardless of stack region |
