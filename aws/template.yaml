@@ -57,6 +57,16 @@ Parameters:
     Type: Number
     Default: 14
     AllowedValues: [1, 3, 5, 7, 14, 30, 60, 90, 180, 365]
+  ExpirySweepSchedule:
+    Type: String
+    Default: rate(1 hour)
+    Description: |
+      EventBridge schedule for netcidr's expiry sweep, which releases
+      allocations past their TTL and deletes expired idempotency keys and
+      PATs. Each run wakes the Neon database, and Neon only scales to zero
+      after ~5 idle minutes, so a frequent schedule keeps it running all
+      day and eats the free tier. Hourly keeps it mostly asleep; TTLs are
+      honored to within the interval.
 
 Conditions:
   # CLI login needs both halves of the Desktop-app client; one without the
@@ -109,6 +119,20 @@ Resources:
           # Lambda's `provided.al2023` runtime sets AWS_LAMBDA_LOG_LEVEL,
           # but our Rust app reads RUST_LOG.
           RUST_LOG: info,tower_http=warn
+      # netcidr's lambda binary runs its expiry sweep when invoked with an
+      # EventBridge Scheduled Event (the default payload of a Schedule
+      # rule); every other payload is an HTTP request. SAM creates the rule
+      # and the permission for events.amazonaws.com to invoke the function.
+      # The explicit name keeps the rule inside the deploy role's
+      # `rule/netcidr*` scope (oidc-bootstrap.yaml).
+      Events:
+        ExpirySweep:
+          Type: Schedule
+          Properties:
+            Name: !Sub "${AppName}-expiry-sweep"
+            Description: netcidr expiry sweep (TTL'd allocations, idempotency keys, PATs)
+            Schedule: !Ref ExpirySweepSchedule
+            Enabled: true
       FunctionUrlConfig:
         AuthType: NONE
         InvokeMode: BUFFERED
@@ -193,3 +217,6 @@ Outputs:
     Value: !Ref NetcidrFunction
   LogGroup:
     Value: !Ref NetcidrLogGroup
+  ExpirySweepSchedule:
+    Description: Cadence of the expiry sweep rule.
+    Value: !Ref ExpirySweepSchedule
