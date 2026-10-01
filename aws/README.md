@@ -38,13 +38,16 @@ just install-tools
 
 # 2. Copy and edit local config
 cp samconfig.toml.example samconfig.toml      # AWS deploy params
-cp .env.example .env                          # Cloudflare token, zone, etc.
+cp .env.example .env                          # Cloudflare token, zone, AWS_REGION, etc.
 
 # Or, if you keep secrets in 1Password (recommended):
 #   - Save your config to samconfig.toml.tpl with `op://Vault/Item/field`
 #     references in place of literal values.
 #   - `just deploy` renders the .tpl via `op inject` before deploying and
 #     removes the rendered samconfig.toml afterward (even on failure).
+#   - .env must set AWS_REGION (the stack region, e.g. us-east-2). Recipes
+#     that touch AWS refuse to run without it rather than guess a region;
+#     a fresh clone or a git worktree has no .env until you add one.
 #   - For .env, run with `op run --env-file=.env -- just <recipe>` so
 #     CLOUDFLARE_API_TOKEN etc. are injected at invocation time.
 
