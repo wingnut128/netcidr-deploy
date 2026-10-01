@@ -5,11 +5,23 @@ set dotenv-load := true
 # NETCIDR_DIR=… if your checkout lives elsewhere.
 netcidr_dir := env_var_or_default("NETCIDR_DIR", "../../netcidr")
 stack := env_var_or_default("SAM_STACK_NAME", "netcidr")
-region := env_var_or_default("AWS_REGION", "us-east-1")
+# No default: a wrong region doesn't fail, it silently targets (or creates)
+# a different stack. `cert-bootstrap` pins us-east-1 itself (CloudFront).
+region := env_var_or_default("AWS_REGION", "")
 
 # List recipes
 default:
     @just --list
+
+# Stop unless AWS_REGION is set (in aws/.env or the environment).
+[private]
+_require-region:
+    @if [ -z "{{region}}" ]; then \
+        echo "✗ AWS_REGION is not set. Put it in aws/.env (e.g. AWS_REGION=us-east-2)" >&2; \
+        echo "  or export it. There is no default: the wrong region silently targets" >&2; \
+        echo "  a different stack (and IAM names are global, so creates collide)." >&2; \
+        exit 1; \
+    fi
 
 # ─────────────────────────── Prereqs ───────────────────────────
 
@@ -41,6 +53,7 @@ doctor:
     @command -v zig >/dev/null         || { echo "✗ zig missing (cargo-lambda cross-compile linker) — run 'just install-tools'"; exit 1; }
     @command -v jq >/dev/null      || { echo "✗ jq missing"; exit 1; }
     @aws sts get-caller-identity --output text >/dev/null || { echo "✗ AWS creds not configured"; exit 1; }
+    @test -n "{{region}}" || { echo "✗ AWS_REGION not set — add it to .env (e.g. AWS_REGION=us-east-2)"; exit 1; }
     @test -f samconfig.toml || { echo "✗ samconfig.toml missing — copy from samconfig.toml.example"; exit 1; }
     @test -f .env           || { echo "⚠ .env missing — Cloudflare sync will fail. Copy from .env.example."; }
     @test -d "{{netcidr_dir}}" || { echo "✗ NETCIDR_DIR ({{netcidr_dir}}) does not exist"; exit 1; }
@@ -91,7 +104,7 @@ validate:
 # If the GitHub OIDC provider already exists in this account, pass
 # CreateOidcProvider=false: `just oidc-bootstrap false`.
 [doc("One-time: deploy the OIDC trust + IAM role for GitHub Actions.")]
-oidc-bootstrap create_provider="true":
+oidc-bootstrap create_provider="true": _require-region
     aws cloudformation deploy \
         --template-file oidc-bootstrap.yaml \
         --stack-name netcidr-deploy-gha-oidc \
@@ -109,7 +122,7 @@ oidc-bootstrap create_provider="true":
 # CLI), deploy, then delete the rendered samconfig.toml on exit — even if
 # the deploy fails. The plaintext file never sticks around.
 [doc("Build, validate, and `sam deploy` (renders samconfig.toml.tpl if present).")]
-deploy: build validate
+deploy: _require-region build validate
     @if [ -f samconfig.toml.tpl ]; then \
         echo "→ Rendering samconfig.toml from .tpl via op inject…"; \
         trap 'rm -f samconfig.toml' EXIT; \
@@ -123,7 +136,7 @@ deploy: build validate
 # This bypasses the .tpl flow on purpose so the resulting file stays on
 # disk for review/edit before being copied into a .tpl.
 [doc("First-time guided deploy (writes samconfig.toml interactively).")]
-deploy-guided: build validate
+deploy-guided: _require-region build validate
     sam deploy --guided --region {{region}}
 
 # Remove a rendered samconfig.toml. Safe to run any time; no-op if the
@@ -135,7 +148,7 @@ clean-config:
     @echo "✓ Removed samconfig.toml (template at samconfig.toml.tpl is preserved)."
 
 # Sync the Cloudflare CNAME to the current CloudFront distribution.
-cloudflare-sync:
+cloudflare-sync: _require-region
     @bash cloudflare/update-dns.sh
 
 # One-time: provision an ACM cert for the public hostname and validate
@@ -150,7 +163,7 @@ ship: deploy cloudflare-sync
 # ─────────────────────────── Operate ───────────────────────────
 
 # Print the CloudFront-fronted URL (what Cloudflare's CNAME points at).
-url:
+url: _require-region
     @aws cloudformation describe-stacks \
         --stack-name {{stack}} --region {{region}} \
         --query 'Stacks[0].Outputs[?OutputKey==`CloudFrontDomain`].OutputValue' \
@@ -158,22 +171,22 @@ url:
         | xargs -I{} echo "https://{}/"
 
 # Print the raw Lambda Function URL (origin behind CloudFront — for diagnostics).
-function-url:
+function-url: _require-region
     @aws cloudformation describe-stacks \
         --stack-name {{stack}} --region {{region}} \
         --query 'Stacks[0].Outputs[?OutputKey==`FunctionUrl`].OutputValue' \
         --output text
 
 # Tail recent Lambda logs.
-logs:
+logs: _require-region
     sam logs --stack-name {{stack}} --region {{region}} --tail
 
 # Tail logs for the last hour, no follow (one-shot for triage).
-logs-recent:
+logs-recent: _require-region
     sam logs --stack-name {{stack}} --region {{region}} --start-time '1 hour ago'
 
 # Open the CloudFormation stack in the AWS console.
-console:
+console: _require-region
     @open "https://{{region}}.console.aws.amazon.com/cloudformation/home?region={{region}}#/stacks/stackinfo?stackId={{stack}}"
 
 # ─────────────────────────── Teardown ──────────────────────────
@@ -182,7 +195,7 @@ console:
 # Cloudflare CNAME is left in place — remove via dashboard if you
 # also want to drop the DNS record.
 [doc("Delete the CloudFormation stack (prompts first; leaves DNS alone).")]
-destroy:
+destroy: _require-region
     @read -p "Delete stack '{{stack}}' in {{region}}? [y/N] " ans; \
         [[ "$ans" == "y" || "$ans" == "Y" ]] || { echo "Aborted."; exit 1; }
     sam delete --stack-name {{stack}} --region {{region}} --no-prompts

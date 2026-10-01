@@ -19,7 +19,7 @@ set -euo pipefail
 : "${CLOUDFLARE_ZONE_ID:?Set CLOUDFLARE_ZONE_ID in .env}"
 : "${CLOUDFLARE_RECORD_NAME:?Set CLOUDFLARE_RECORD_NAME in .env}"
 : "${SAM_STACK_NAME:=netcidr}"
-: "${AWS_REGION:=us-east-1}"
+: "${AWS_REGION:?Set AWS_REGION in .env (the stack region, e.g. us-east-2)}"
 : "${CLOUDFLARE_PROXIED:=true}"
 
 require() { command -v "$1" >/dev/null || { echo "Missing $1"; exit 1; }; }
