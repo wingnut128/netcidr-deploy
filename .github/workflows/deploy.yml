@@ -150,6 +150,8 @@ jobs:
           OIDC_CLI_CLIENT_ID: op://netcidr-deployment/gcp-cli-client/client_id
           OIDC_CLI_CLIENT_SECRET: op://netcidr-deployment/gcp-cli-client/client_secret
           CERTIFICATE_ARN: op://netcidr-deployment/certificate/arn
+          # CloudFront -> Lambda origin secret (X-Origin-Verify).
+          ORIGIN_VERIFY_SECRET: op://netcidr-deployment/origin-verify/secret
           CLOUDFLARE_API_TOKEN: op://netcidr-deployment/cloudflare/api_token
           CLOUDFLARE_ZONE_ID: op://netcidr-deployment/cloudflare/zone_id
 
@@ -216,7 +218,8 @@ jobs:
               "OidcCliClientId=$OIDC_CLI_CLIENT_ID" \
               "OidcCliClientSecret=$OIDC_CLI_CLIENT_SECRET" \
               "PublicHostname=$PUBLIC_HOSTNAME" \
-              "CertificateArn=$CERTIFICATE_ARN"
+              "CertificateArn=$CERTIFICATE_ARN" \
+              "OriginVerifySecret=$ORIGIN_VERIFY_SECRET"
 
       - name: Show stack outputs
         env:
