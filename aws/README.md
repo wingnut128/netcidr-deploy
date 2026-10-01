@@ -163,6 +163,35 @@ without it (403). It is always on.
 Rate limiting keys on `CloudFront-Viewer-Address` (see CLAUDE.md), set by
 `NETCIDR_CLIENT_IP_SOURCE` in the template.
 
+## Rate limiting
+
+netcidr's limiter (`RateLimitPerSecond` 20, `RateLimitBurst` 50) keeps its
+bucket in each Lambda instance's memory, so the effective per-client limit
+grows with warm instances (at most 10 while the account concurrency limit
+is 10; `ReservedConcurrency` can cap it lower once that quota is raised). A normal `curl` loop is slower than the refill rate
+and never gets a 429. To check the limiter is keying on the viewer address,
+deploy with a limit a loop *can* exceed, then put it back:
+
+1. Set repo variables `RATE_LIMIT_PER_SECOND=1` and `RATE_LIMIT_BURST=3`
+   (or the same parameters in `samconfig.toml`) and deploy.
+2. From one machine, expect a few 200s and then 429s:
+
+   ```sh
+   for i in $(seq 20); do curl -s -o /dev/null -w '%{http_code} ' https://<PublicHostname>/health; done; echo
+   ```
+
+3. Straight after, from another network (e.g. a phone hotspot), expect 200.
+   If it's 429, `CloudFront-Viewer-Address` isn't arriving and everyone
+   shares one bucket.
+4. Back on the first machine, a spoofed header must still get 429:
+   `curl -s -o /dev/null -w '%{http_code}\n' -H 'CloudFront-Viewer-Address: 203.0.113.99:1234' https://<PublicHostname>/health`
+5. Delete the two variables (the workflow then passes 20 / 50 again) and
+   deploy.
+
+Several warm instances each hold their own bucket, so a run can
+occasionally see a 200 after 429s; a consistent 200 run in step 2 is the
+signal that something is wrong.
+
 ## Tradeoffs
 
 - **No CloudFront.** Cloudflare proxies directly to the Function URL.
