@@ -137,6 +137,24 @@ Resources:
                 Resource:
                   - !Sub "arn:aws:iam::${AWS::AccountId}:role/netcidr*"
 
+              # EventBridge rule for the scheduled expiry sweep (a SAM
+              # `Schedule` event on the function). Scoped to rules named
+              # netcidr*, matching the template's explicit rule name.
+              - Effect: Allow
+                Action:
+                  - events:PutRule
+                  - events:DeleteRule
+                  - events:DescribeRule
+                  - events:EnableRule
+                  - events:DisableRule
+                  - events:PutTargets
+                  - events:RemoveTargets
+                  - events:ListTargetsByRule
+                  - events:TagResource
+                  - events:UntagResource
+                Resource:
+                  - !Sub "arn:aws:events:*:${AWS::AccountId}:rule/netcidr*"
+
               # SAM uploads packaged code to its managed bucket.
               - Effect: Allow
                 Action:

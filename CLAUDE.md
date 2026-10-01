@@ -119,6 +119,7 @@ Both `aws/samconfig.toml` and `aws/samconfig.toml.tpl` are gitignored.
 | `OidcCliClientId` / `OidcCliClientSecret` | samconfig | Google OAuth **Desktop app** client for `netcidr login`. Both empty (the default) = CLI login off. When set, the server advertises it on `/features` and accepts its tokens |
 | _(access control)_ | database | Who may sign in lives in netcidr's users directory (ADR-0006), managed at runtime via the dashboard Users page or `netcidr admin user`. The Lambda pins `NETCIDR_ALLOWLIST_MODE=closed` in `template.yaml`. |
 | `PublicHostname` | samconfig | The hostname users hit (e.g. `netcidr.cloudreaper.dev`) |
+| `ExpirySweepSchedule` | samconfig (optional) | EventBridge cadence for netcidr's expiry sweep. Default `rate(1 hour)` |
 | `CertificateArn` | samconfig | ACM cert ARN — must be in **us-east-1** (CloudFront constraint), regardless of stack region |
 | `CLOUDFLARE_API_TOKEN` | .env | Token needs `Zone:DNS:Edit` |
 | `CLOUDFLARE_ZONE_ID` | .env | From the zone overview page |
@@ -129,6 +130,7 @@ Both `aws/samconfig.toml` and `aws/samconfig.toml.tpl` are gitignored.
 
 - **No Cloudflare proxy.** Tried it; Cloudflare's free plan can't rewrite the `Host` header (Transform Rules API explicitly blocks it — error 20087: "set is not a valid value for operation because it cannot be used on header 'Host'"). Without the rewrite, CloudFront 403s any request whose Host doesn't match its alias. With the proper Alias + ACM cert, CloudFront accepts the public hostname directly.
 - **No CloudFront Origin Shield, no Lambda@Edge.** Both have separate cost. Not needed here.
+- **Expiry sweep on an hourly EventBridge schedule.** netcidr releases allocations past their TTL and deletes expired idempotency keys and PATs when the Lambda is invoked with an EventBridge Scheduled Event (netcidr #497). SAM's `Schedule` event creates the rule (`netcidr-expiry-sweep`) and its invoke permission. Hourly rather than every few minutes because each run wakes Neon, which only scales to zero after ~5 idle minutes; a tight schedule would keep it awake all day. The GitHub Actions deploy role needs `events:*Rule*`/`*Targets` on `rule/netcidr*` (granted in `oidc-bootstrap.yaml`; re-run `just oidc-bootstrap false` after changing it). The binary must include netcidr #501, or each tick logs a failed HTTP parse.
 - **`OriginRequestPolicy: AllViewerExceptHostHeader`** strips Host before forwarding to Lambda. Lambda Function URLs match by URL, but reject any Host that isn't theirs.
 - **Rate limiter disabled in Lambda.** `tower_governor` needs `ConnectInfo<SocketAddr>`, which `lambda_http::run` doesn't provide — `rate_limit_per_second = 0` in the Lambda's `ServerConfig` skips the layer. AWS Lambda's own concurrency controls cover throttling.
 - **`sqlx` built with `tls-rustls`.** Neon (any cloud Postgres) requires TLS. Pure Rust, no system openssl dep — nothing for the cross-compile to link against.
