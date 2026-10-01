@@ -117,8 +117,11 @@ Resources:
                   - logs:TagResource
                 Resource: "*"
 
-              # IAM for the Lambda execution role SAM creates. Scoped to
-              # roles named netcidr* so this can't escalate beyond the app.
+              # IAM for the Lambda execution role SAM creates, which SAM
+              # names <stack>-NetcidrFunctionRole-<suffix>. Deliberately not
+              # `netcidr*`: that pattern also matches this role
+              # (netcidr-deploy-gha), letting a workflow rewrite its own
+              # policy and escalate to anything in the account.
               - Effect: Allow
                 Action:
                   - iam:CreateRole
@@ -135,7 +138,7 @@ Resources:
                   - iam:TagRole
                   - iam:UntagRole
                 Resource:
-                  - !Sub "arn:aws:iam::${AWS::AccountId}:role/netcidr*"
+                  - !Sub "arn:aws:iam::${AWS::AccountId}:role/*-NetcidrFunctionRole-*"
 
               # EventBridge rule for the scheduled expiry sweep (a SAM
               # `Schedule` event on the function). Scoped to rules named
