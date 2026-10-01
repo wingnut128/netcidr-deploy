@@ -90,6 +90,8 @@ Outputs `RoleArn`. Save it into the 1Password vault as a new item:
 | `OidcAudience` | 1Password (`gcp-client-id/client_id`) | Secret-ish (treat as such) |
 | `OidcCliClientId` / `OidcCliClientSecret` | 1Password (`gcp-cli-client/client_id`, `client_secret`) | Desktop-app client for `netcidr login`; secret is public by design (RFC 8252) but kept in the vault |
 | `CertificateArn` | 1Password (`certificate/arn`) | Sensitive-ish |
+| `OriginVerifySecret` | 1Password (`origin-verify/secret`) | Secret; CloudFront → Lambda origin check |
+| `EnforceOriginSecret` | Repo variable `ENFORCE_ORIGIN_SECRET` | `true` turns on the Lambda's origin check; unset = `false` |
 | `CLOUDFLARE_API_TOKEN` | 1Password (`cloudflare/api_token`) | Secret — `Zone:DNS:Edit` only |
 | `CLOUDFLARE_ZONE_ID` | 1Password (`cloudflare/zone_id`) | Not really sensitive, but kept with token |
 | `CLOUDFLARE_RECORD_NAME` | Repo variable | Subdomain only (e.g. `netcidr`) — public |
@@ -120,6 +122,8 @@ Both `aws/samconfig.toml` and `aws/samconfig.toml.tpl` are gitignored.
 | _(access control)_ | database | Who may sign in lives in netcidr's users directory (ADR-0006), managed at runtime via the dashboard Users page or `netcidr admin user`. The Lambda pins `NETCIDR_ALLOWLIST_MODE=closed` in `template.yaml`. |
 | `PublicHostname` | samconfig | The hostname users hit (e.g. `netcidr.cloudreaper.dev`) |
 | `ExpirySweepSchedule` | samconfig (optional) | EventBridge cadence for netcidr's expiry sweep. Default `rate(1 hour)` |
+| `OriginVerifySecret` | samconfig / 1Password (`origin-verify/secret`) | ≥ 32 random chars; CloudFront sends it as `X-Origin-Verify`. Rotate by deploying a new value (CloudFront and Lambda update together; expect a brief 403 window while edges catch up, or drop `EnforceOriginSecret` to `false` for the rotation) |
+| `EnforceOriginSecret` | samconfig / repo variable `ENFORCE_ORIGIN_SECRET` | `false` until CloudFront has rolled out the header, then `true` |
 | `CertificateArn` | samconfig | ACM cert ARN — must be in **us-east-1** (CloudFront constraint), regardless of stack region |
 | `CLOUDFLARE_API_TOKEN` | .env | Token needs `Zone:DNS:Edit` |
 | `CLOUDFLARE_ZONE_ID` | .env | From the zone overview page |
@@ -132,7 +136,9 @@ Both `aws/samconfig.toml` and `aws/samconfig.toml.tpl` are gitignored.
 - **No CloudFront Origin Shield, no Lambda@Edge.** Both have separate cost. Not needed here.
 - **Expiry sweep on an hourly EventBridge schedule.** netcidr releases allocations past their TTL and deletes expired idempotency keys and PATs when the Lambda is invoked with an EventBridge Scheduled Event (netcidr #497). SAM's `Schedule` event creates the rule (`netcidr-expiry-sweep`) and its invoke permission. Hourly rather than every few minutes because each run wakes Neon, which only scales to zero after ~5 idle minutes; a tight schedule would keep it awake all day. The GitHub Actions deploy role needs `events:*Rule*`/`*Targets` on `rule/netcidr*` (granted in `oidc-bootstrap.yaml`; re-run `just oidc-bootstrap false` after changing it). The binary must include netcidr #501, or each tick logs a failed HTTP parse.
 - **`OriginRequestPolicy: AllViewerExceptHostHeader`** strips Host before forwarding to Lambda. Lambda Function URLs match by URL, but reject any Host that isn't theirs.
-- **Rate limiter disabled in Lambda.** `tower_governor` needs `ConnectInfo<SocketAddr>`, which `lambda_http::run` doesn't provide — `rate_limit_per_second = 0` in the Lambda's `ServerConfig` skips the layer. AWS Lambda's own concurrency controls cover throttling.
+- **Rate limiting keys on `CloudFront-Viewer-Address`.** netcidr's per-IP limiter (20 req/s, burst 50) trusts exactly one address source. `NETCIDR_CLIENT_IP_SOURCE=header:cloudfront-viewer-address` points it at the viewer address CloudFront adds; the `AllViewerExceptHostHeader` policy already forwards it. `X-Forwarded-For` would be wrong: CloudFront *appends* to whatever the client sent, so its left side is spoofable (netcidr ADR-0005 amendment).
+- **The Function URL only answers CloudFront.** The Function URL itself is public (`AuthType: NONE`), so CloudFront adds a secret `X-Origin-Verify` header (`OriginVerifySecret`) and netcidr returns 403 to anything without it, once `NETCIDR_ORIGIN_SECRET` is set (`EnforceOriginSecret=true`). CloudFront origin access control (OAC) is **not** usable here: for Lambda origins it replaces the viewer's `Authorization` header with a SigV4 signature (netcidr authenticates with `Authorization: Bearer`) and requires every POST/PUT client to send `x-amz-content-sha256`.
+- **Deploy role IAM is scoped to the Lambda execution role** (`role/*-NetcidrFunctionRole-*`), not `role/netcidr*`. The old pattern matched the deploy role itself (`netcidr-deploy-gha`), so a workflow could rewrite its own policy.
 - **`sqlx` built with `tls-rustls`.** Neon (any cloud Postgres) requires TLS. Pure Rust, no system openssl dep — nothing for the cross-compile to link against.
 - **The Lambda binary is glibc, not musl.** `cargo lambda build --arm64` passes no explicit `--target`, so it resolves to `aarch64-unknown-linux-gnu` (`TARGET_ARM` in cargo-lambda's `target_arch.rs`). This works because Zig links against an older glibc than the build host has — bridging ubuntu's 2.39 (or macOS locally) down to AL2023's 2.34. Cross-compiling is unavoidable in both paths: CI is x86_64 Linux and Lambda is arm64 Linux; local dev is arm64 macOS. That's why `just install-tools` installs Zig.
 

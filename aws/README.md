@@ -114,7 +114,7 @@ These are one-time clicks not worth automating:
 ## Operate
 
 ```sh
-just url                # print the raw Function URL
+just url                # print the CloudFront domain
 just logs               # tail Lambda logs
 just logs-recent        # last hour, no follow
 just console            # open the CFN stack in the AWS console
@@ -132,6 +132,34 @@ aws lambda invoke --function-name netcidr \
   --payload '{"source":"aws.events","detail-type":"Scheduled Event","detail":{}}' \
   --cli-binary-format raw-in-base64-out /dev/stdout
 ```
+
+## Origin lockdown
+
+The Function URL is public, so CloudFront proves each request came through
+it with a secret `X-Origin-Verify` header, and netcidr rejects requests
+without it (403). Roll it out in two deploys so no edge is caught without
+the header:
+
+1. Create the 1Password item `netcidr-deployment/origin-verify` with a
+   `secret` field of at least 32 random characters (e.g.
+   `openssl rand -base64 48 | tr -d '/+=' | cut -c1-48`), or set
+   `OriginVerifySecret` in `samconfig.toml`.
+2. Deploy with `EnforceOriginSecret=false` (the default). CloudFront starts
+   sending the header; wait until the distribution's status is `Deployed`.
+3. Set the repo variable `ENFORCE_ORIGIN_SECRET=true` (or
+   `EnforceOriginSecret=true` locally) and deploy again.
+4. Check that the raw Function URL now refuses and the public hostname
+   still works:
+
+   ```sh
+   fn_url=$(aws cloudformation describe-stacks --stack-name netcidr \
+     --query 'Stacks[0].Outputs[?OutputKey==`FunctionUrl`].OutputValue' --output text)
+   curl -s -o /dev/null -w '%{http_code}\n' "${fn_url}health"       # 403
+   curl -s -o /dev/null -w '%{http_code}\n' https://<PublicHostname>/health  # 200
+   ```
+
+Rate limiting keys on `CloudFront-Viewer-Address` (see CLAUDE.md), set by
+`NETCIDR_CLIENT_IP_SOURCE` in the template.
 
 ## Tradeoffs
 
