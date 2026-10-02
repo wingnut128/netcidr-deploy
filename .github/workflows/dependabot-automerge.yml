@@ -1,0 +1,49 @@
+name: Dependabot Auto-Merge
+
+# Enables auto-merge on non-major Dependabot PRs. It does NOT bypass review:
+# branch protection on main still requires a CODEOWNERS approval, because
+# deploy.yml assumes an AWS role and every Actions bump will run with it.
+# Approving the PR is the only manual step; GitHub merges once it is approved
+# and the required checks pass.
+#
+# The merge authenticates with a fine-grained PAT, not GITHUB_TOKEN:
+# Dependabot's github-actions bumps edit .github/workflows/, and GITHUB_TOKEN
+# cannot merge changes to workflow files.
+#
+# Dependabot-triggered runs can ONLY read *Dependabot* secrets, not Actions
+# secrets. DEPENDABOT_PAT must therefore live under Settings → Secrets and
+# variables → *Dependabot*. It needs access to this repo with Contents + Pull
+# requests: write, plus Workflows: write.
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  automerge:
+    name: Auto-Merge
+    runs-on: ubuntu-latest
+    if: github.actor == 'dependabot[bot]'
+    # GITHUB_TOKEN only reads metadata; the PAT enables auto-merge.
+    permissions:
+      contents: read
+    steps:
+      - name: Fetch Dependabot metadata
+        id: metadata
+        uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3.1.0
+        with:
+          github-token: "${{ secrets.GITHUB_TOKEN }}"
+
+      - name: Enable auto-merge for patch and minor updates
+        if: steps.metadata.outputs.update-type != 'version-update:semver-major'
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error::DEPENDABOT_PAT is empty. Add it as a Dependabot secret (not an Actions secret)."
+            exit 1
+          fi
+          gh pr merge --auto --squash "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.DEPENDABOT_PAT }}
