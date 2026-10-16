@@ -60,7 +60,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Harden runner
-        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # v2.22.1
         with:
           egress-policy: audit
 
@@ -116,7 +116,7 @@ jobs:
       # before invoking Zig. Older cargo-zigbuild releases passed it
       # through, but Zig's linker driver does not accept that argument.
       - name: Install cargo-lambda
-        uses: taiki-e/install-action@4cef1412cce204788f482e778a0b9187f9626a29 # v2.87.21
+        uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
         with:
           tool: cargo-lambda@1.9.2
 
