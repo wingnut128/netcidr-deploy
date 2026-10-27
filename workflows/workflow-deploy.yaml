@@ -2,8 +2,8 @@ id: fc809ce2-634f-4303-bb25-c01a2b0a72e2
 name: deploy
 description: >-
   Build, audit, and deploy a netcidr release to AWS (Lambda + CloudFront via
-  the SAM stack), then point Cloudflare DNS at CloudFront. Replaces
-  .github/workflows/deploy.yml. Run with AWS_PROFILE=netcidr-admin.
+  the SAM stack), then point Cloudflare DNS at CloudFront. Run with
+  AWS_PROFILE=netcidr-admin.
 tags: {}
 vaults: [netcidr, default]
 inputs:
