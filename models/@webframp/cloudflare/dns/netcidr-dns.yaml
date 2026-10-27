@@ -1,0 +1,10 @@
+type: '@webframp/cloudflare/dns'
+typeVersion: 2026.10.21.1
+id: 0bd73bc5-6cda-4df7-bad0-1bc77190942e
+name: netcidr-dns
+version: 1
+tags: {}
+globalArguments:
+  apiToken: '${{ vault.get("netcidr", "cloudflare/api_token") }}'
+  zoneId: '${{ vault.get("netcidr", "cloudflare/zone_id") }}'
+methods: {}
