@@ -1,0 +1,11 @@
+type: '@keeb/discord/webhook'
+typeVersion: 2026.02.14.2
+id: 1e61e39d-7b45-4239-99d5-c71efcf5c6b1
+name: netcidr-discord
+version: 1
+tags: {}
+globalArguments:
+  # Local `default` vault, not 1Password: release-watch runs unattended from
+  # launchd, where a 1Password approval prompt would time out.
+  webhookUrl: '${{ vault.get("default", "discord-netcidr-webhook") }}'
+methods: {}

@@ -1,0 +1,49 @@
+id: f2c07501-964f-4494-8ce0-0d77a5f3c2df
+name: release-watch
+description: >-
+  Announce on Discord when a netcidr release is published but not deployed.
+  Reads only public endpoints; runs unattended from a launchd agent every 30
+  minutes. Each release is announced once.
+tags: {}
+vaults: [default]
+jobs:
+  - name: watch
+    description: Check → announce → record
+    steps:
+      - name: check
+        description: Newest published release vs. the deployed /version
+        task:
+          type: behavior
+          behavior: netcidr-release-watch
+          methodName: check
+
+      - name: announce
+        description: Post to Discord. Skipped unless a new release isn't live yet.
+        dependsOn:
+          - step: check
+            condition: { type: succeeded }
+        guard: >-
+          ${{ !data.latest("netcidr-release-watch", "status").attributes.needsNotify }}
+        task:
+          type: behavior
+          behavior: netcidr-discord
+          methodName: send
+          inputs:
+            username: netcidr-release
+            content: >-
+              netcidr ${{ data.latest("netcidr-release-watch", "status").attributes.latestTag }}
+              is released but not deployed (live: v${{ data.latest("netcidr-release-watch", "status").attributes.liveVersion }}).
+              ${{ data.latest("netcidr-release-watch", "status").attributes.releaseUrl }}
+              — deploy from netcidr-deploy with
+              `AWS_PROFILE=netcidr-admin swamp workflow run deploy`
+
+      - name: acknowledge
+        description: Record the announcement so the release isn't announced again
+        dependsOn:
+          - step: announce
+            condition: { type: succeeded }
+        task:
+          type: behavior
+          behavior: netcidr-release-watch
+          methodName: acknowledge
+version: 1

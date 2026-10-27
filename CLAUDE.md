@@ -121,6 +121,14 @@ Steps: `build` (cargo-lambda in a worktree under `~/Library/Caches/netcidr-deplo
 - **Skip.** If `/version` already reports the built commit, everything from `package` on is skipped.
 - A code-only release plans as `NetcidrFunction` plus two "Dynamic" cascades (`NetcidrFunctionExpirySweep`, `...Permission`) through `NetcidrFunction.Arn`; the ARN doesn't change, so those are no-ops.
 
+### Release notifications
+
+The `release-watch` workflow compares netcidr's newest published GitHub release with what `/version` serves, and posts to Discord once per release that isn't deployed yet. Deploying stays manual.
+
+- A launchd agent runs it every 30 minutes: `launchd/dev.cloudreaper.netcidr-release-watch.plist`, installed in `~/Library/LaunchAgents/`, logging to `~/Library/Logs/swamp/netcidr-release-watch.log`. Remove it with `launchctl bootout gui/$(id -u)/dev.cloudreaper.netcidr-release-watch`.
+- It reads only public endpoints. The Discord webhook URL is in the local `default` vault (`discord-netcidr-webhook`), not 1Password, because an unattended run can't answer 1Password's approval prompt. Rotate it with `pbpaste | swamp vault put default discord-netcidr-webhook`.
+- Run it by hand with `swamp workflow run release-watch`; inspect the last check with `swamp data query 'modelName == "netcidr-release-watch" && name == "status"' --select content`.
+
 ## Secrets handling
 
 Two patterns supported:
