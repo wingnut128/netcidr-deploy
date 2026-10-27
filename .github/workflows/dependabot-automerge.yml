@@ -2,7 +2,7 @@ name: Dependabot Auto-Merge
 
 # Enables auto-merge on non-major Dependabot PRs. It does NOT bypass review:
 # branch protection on main still requires a CODEOWNERS approval, because
-# deploy.yml assumes an AWS role and every Actions bump will run with it.
+# every Actions bump changes code that runs with this repo's tokens.
 # Approving the PR is the only manual step; GitHub merges once it is approved
 # and the required checks pass.
 #

@@ -1,14 +1,18 @@
 // Builds the netcidr Lambda binary from a release tag of a local netcidr
-// clone. Mirrors the build half of .github/workflows/deploy.yml:
+// clone:
 //   dashboard SPA (bun) → cargo lambda build (arm64 gnu, glibc 2.28 floor)
 //
 // Builds run in a dedicated git worktree under `workDir`, never in the
 // netcidr working copy, so uncommitted changes can't ship under a tag.
 // The cargo target dir lives beside it so incremental builds stay warm.
 //
-// Toolchain versions are checked, not installed. CI pins Zig 0.13.0 and
-// cargo-lambda 1.9.2 for reasons recorded in deploy.yml; a mismatch
-// fails the build before any compile starts.
+// Toolchain versions are checked, not installed; a mismatch fails the
+// build before any compile starts. The pins, and why:
+//   - Zig 0.13.0: cargo-lambda's cross-linker (via cargo-zigbuild). Newer
+//     Zig has broken cargo-zigbuild before.
+//   - cargo-lambda 1.9.2: bundles cargo-zigbuild 0.23.0, which filters
+//     Rust's AArch64 `--fix-cortex-a53-843419` pre-link argument that
+//     Zig's linker driver rejects; older releases passed it through.
 import { z } from "npm:zod@4";
 import { parse as parseYaml } from "npm:yaml@2.9.1";
 import {
@@ -151,6 +155,25 @@ type Context = {
     ): Promise<Uint8Array | null>;
   };
 };
+
+// Audit output must be a JSON object. Anything else means the tool failed,
+// and a failed audit must not read as "no findings".
+// deno-lint-ignore no-explicit-any
+function parseAuditJson(tool: string, text: string): Record<string, any> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw new Error(
+      `${tool} produced no parseable JSON: ${text.slice(0, 200) || "(empty)"}`,
+    );
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new Error(`${tool} JSON is not an object`);
+  }
+  // deno-lint-ignore no-explicit-any
+  return parsed as Record<string, any>;
+}
 
 // Runs a command, streaming each output line to the swamp run log, and
 // returns trimmed stdout. Throws on a non-zero exit.
@@ -613,7 +636,8 @@ export const behavior = {
         // RustSec. Run from workDir, not src: cargo-audit reads the repo's
         // .cargo/audit.toml from its cwd and silently drops ignored ids.
         // Accepted findings should stay in the record, just non-blocking.
-        const auditJson = JSON.parse(
+        const auditJson = parseAuditJson(
+          "cargo audit",
           await run(
             ctx.logger,
             "cargo",
@@ -621,7 +645,10 @@ export const behavior = {
             { cwd: ga.workDir, allowFailure: true, quiet: true },
           ),
         );
-        for (const v of auditJson.vulnerabilities?.list ?? []) {
+        if (!Array.isArray(auditJson.vulnerabilities?.list)) {
+          throw new Error("cargo audit: JSON has no vulnerabilities.list");
+        }
+        for (const v of auditJson.vulnerabilities.list) {
           const score = cvss3Score(v.advisory.cvss);
           add({
             source: "cargo",
@@ -647,8 +674,12 @@ export const behavior = {
           ["audit", "--json"],
           { cwd: `${src}/dashboard`, allowFailure: true, quiet: true },
         );
-        const bunJson = bunOut ? JSON.parse(bunOut) : {};
+        // A clean tree prints `{}`; empty output means bun itself failed.
+        const bunJson = parseAuditJson("bun audit", bunOut);
         for (const [pkg, advisories] of Object.entries(bunJson)) {
+          if (!Array.isArray(advisories)) {
+            throw new Error(`bun audit: advisories for ${pkg} not an array`);
+          }
           for (
             const a of advisories as Array<{
               id: number;
@@ -681,13 +712,20 @@ export const behavior = {
         // crates.io). Zig and rustc have none to query; that's recorded
         // rather than silently passed.
         const toolchain: z.infer<typeof AuditSchema>["toolchain"] = [];
-        const osv = await fetch("https://api.osv.dev/v1/query", {
+        const osvRes = await fetch("https://api.osv.dev/v1/query", {
           method: "POST",
           body: JSON.stringify({
             package: { name: "cargo-lambda", ecosystem: "crates.io" },
             version: build.cargoLambdaVersion,
           }),
-        }).then((r) => r.json());
+        });
+        if (!osvRes.ok) {
+          throw new Error(`OSV query failed: HTTP ${osvRes.status}`);
+        }
+        const osv = parseAuditJson("OSV", await osvRes.text());
+        if (osv.vulns !== undefined && !Array.isArray(osv.vulns)) {
+          throw new Error("OSV: vulns is not an array");
+        }
         const vulns: Array<{ id: string; summary?: string }> = osv.vulns ?? [];
         toolchain.push({
           tool: "cargo-lambda",
@@ -715,7 +753,7 @@ export const behavior = {
             version: build.zigVersion,
             status: "no-feed",
             note:
-              "No advisory database covers Zig; pin changes stay compatibility-driven (see deploy.yml)",
+              "No advisory database covers Zig; pin changes stay compatibility-driven (see the pin notes in lambda_artifact.ts)",
           },
           {
             tool: "rustc",

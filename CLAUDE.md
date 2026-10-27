@@ -105,7 +105,7 @@ just destroy           # delete the CFN stack (prompts)
 
 ## Deploying locally (swamp)
 
-The swamp `deploy` workflow (`workflows/workflow-deploy.yaml`) builds, audits and deploys from this machine, reading the same 1Password items as CI through the `netcidr` vault:
+The swamp `deploy` workflow (`workflows/workflow-deploy.yaml`) builds, audits and deploys from this machine, reading the same 1Password items as `aws/samconfig.toml.tpl` through the `netcidr` vault (`netcidr-deployment` in 1Password):
 
 ```bash
 aws sso login --profile netcidr-admin
@@ -120,57 +120,6 @@ Steps: `build` (cargo-lambda in a worktree under `~/Library/Caches/netcidr-deplo
 - **Approval.** The run pauses at `approve`. Review the change set with `swamp data query 'modelName == "netcidr-stack" && name == "changeSet"' --select content`, then `swamp workflow approve deploy approve --run <id>` and `AWS_PROFILE=netcidr-admin swamp workflow resume deploy --run <id>` (the run suspends; approval alone doesn't restart it). An empty plan skips approval.
 - **Skip.** If `/version` already reports the built commit, everything from `package` on is skipped.
 - A code-only release plans as `NetcidrFunction` plus two "Dynamic" cascades (`NetcidrFunctionExpirySweep`, `...Permission`) through `NetcidrFunction.Arn`; the ARN doesn't change, so those are no-ops.
-
-## Deploying from CI (GitHub Actions)
-
-`.github/workflows/deploy.yml` mirrors `just deploy` but runs in GitHub Actions, authenticating to AWS via OIDC (no static keys) and pulling deploy secrets from 1Password via a service account. Triggered manually via the Actions tab (`workflow_dispatch`) with optional inputs `netcidr_ref` (default `main`) and `stack_name`.
-
-### One-time setup
-
-**1. Bootstrap the AWS IAM role + OIDC trust:**
-```bash
-cd aws && just oidc-bootstrap
-# Works out CreateOidcProvider itself; safe to re-run after changing oidc-bootstrap.yaml.
-```
-Outputs `RoleArn`. Save it into the 1Password vault as a new item:
-- Vault: `netcidr-deployment`
-- Item: `aws-deploy-role`
-- Field: `arn`
-
-**2. Create a 1Password service account:**
-- 1Password → Integrations → Service Accounts → Create
-- Scope: read-only on the `netcidr-deployment` vault
-- Copy the token (shown once); store as repo secret `OP_SERVICE_ACCOUNT_TOKEN`
-- See [1Password's GitHub Actions docs](https://developer.1password.com/docs/ci-cd/github-actions/)
-
-**3. Configure GitHub repo settings (Settings → Secrets and variables → Actions):**
-- **Secrets**: `OP_SERVICE_ACCOUNT_TOKEN`
-- **Variables**: `AWS_REGION`, `PUBLIC_HOSTNAME`, `CLOUDFLARE_RECORD_NAME`
-
-**4. Trigger** (any of):
-- Actions → "Deploy" → Run workflow (manual, optional `netcidr_ref` override).
-- A new `vX.Y.Z` tag is pushed in `wingnut128/netcidr` — the netcidr release workflow fires `repository_dispatch: netcidr-released` here, which auto-deploys with the new tag. Requires netcidr to hold a fine-grained PAT (`DEPLOY_DISPATCH_TOKEN`) with `Actions: read+write` on this repo.
-
-### What lives where
-
-| Setting | Source | Why |
-|---|---|---|
-| `AWS_ROLE_TO_ASSUME` | 1Password (`aws-deploy-role/arn`) | Sensitive-ish, central rotation |
-| `DatabaseUrl` | 1Password (`neon/connect_string`) | Secret |
-| `PatPepper` | 1Password (`pat-pepper/value`) | Secret; stable PAT hashing pepper |
-| `OidcAudience` | 1Password (`gcp-client-id/client_id`) | Secret-ish (treat as such) |
-| `OidcCliClientId` / `OidcCliClientSecret` | 1Password (`gcp-cli-client/client_id`, `client_secret`) | Desktop-app client for `netcidr login`; secret is public by design (RFC 8252) but kept in the vault |
-| `CertificateArn` | 1Password (`certificate/arn`) | Sensitive-ish |
-| `OriginVerifySecret` | 1Password (`origin-verify/secret`) | Secret; CloudFront → Lambda origin check |
-| `CLOUDFLARE_API_TOKEN` | 1Password (`cloudflare/api_token`) | Secret — `Zone:DNS:Edit` only |
-| `CLOUDFLARE_ZONE_ID` | 1Password (`cloudflare/zone_id`) | Not really sensitive, but kept with token |
-| `CLOUDFLARE_RECORD_NAME` | Repo variable | Subdomain only (e.g. `netcidr`) — public |
-| `AWS_REGION`, `PublicHostname` | Repo variables | Not sensitive, easy to read in run logs |
-| `OP_SERVICE_ACCOUNT_TOKEN` | Repo secret | Required to bootstrap 1Password reads |
-
-Vault paths in the workflow exactly mirror those in `aws/samconfig.toml.tpl` so a single rotation in 1Password updates both local (`op inject`) and CI flows.
-
-Cloudflare DNS sync also runs in CI (after `sam deploy`), pulling the API token from the same `netcidr-deployment` vault. Local `just cloudflare-sync` still works for ad-hoc reruns.
 
 ## Secrets handling
 
@@ -205,15 +154,12 @@ Both `aws/samconfig.toml` and `aws/samconfig.toml.tpl` are gitignored.
 
 - **No Cloudflare proxy.** Tried it; Cloudflare's free plan can't rewrite the `Host` header (Transform Rules API explicitly blocks it — error 20087: "set is not a valid value for operation because it cannot be used on header 'Host'"). Without the rewrite, CloudFront 403s any request whose Host doesn't match its alias. With the proper Alias + ACM cert, CloudFront accepts the public hostname directly.
 - **No CloudFront Origin Shield, no Lambda@Edge.** Both have separate cost. Not needed here.
-- **Expiry sweep on an hourly EventBridge schedule.** netcidr releases allocations past their TTL and deletes expired idempotency keys and PATs when the Lambda is invoked with an EventBridge Scheduled Event (netcidr #497). SAM's `Schedule` event creates the rule (`netcidr-expiry-sweep`) and its invoke permission. Hourly rather than every few minutes because each run wakes Neon, which only scales to zero after ~5 idle minutes; a tight schedule would keep it awake all day. The GitHub Actions deploy role needs `events:*Rule*`/`*Targets` on `rule/netcidr*` (granted in `oidc-bootstrap.yaml`; re-run `just oidc-bootstrap` after changing it). The binary must include netcidr #501, or each tick logs a failed HTTP parse.
+- **Expiry sweep on an hourly EventBridge schedule.** netcidr releases allocations past their TTL and deletes expired idempotency keys and PATs when the Lambda is invoked with an EventBridge Scheduled Event (netcidr #497). SAM's `Schedule` event creates the rule (`netcidr-expiry-sweep`) and its invoke permission. Hourly rather than every few minutes because each run wakes Neon, which only scales to zero after ~5 idle minutes; a tight schedule would keep it awake all day. The binary must include netcidr #501, or each tick logs a failed HTTP parse.
 - **`OriginRequestPolicy: AllViewerExceptHostHeader`** strips Host before forwarding to Lambda. Lambda Function URLs match by URL, but reject any Host that isn't theirs.
 - **Rate limiting keys on `CloudFront-Viewer-Address`.** netcidr's per-IP limiter (20 req/s, burst 50) trusts exactly one address source. `NETCIDR_CLIENT_IP_SOURCE=header:cloudfront-viewer-address` points it at the viewer address CloudFront adds; the `AllViewerExceptHostHeader` policy already forwards it. `X-Forwarded-For` would be wrong: CloudFront *appends* to whatever the client sent, so its left side is spoofable (netcidr ADR-0005 amendment).
 - **The limiter's bucket is per Lambda instance, so reserved concurrency bounds it.** Each execution environment keeps its own in-memory token bucket and serves one request at a time, so parallel requests fan out to fresh instances with full buckets: the effective per-client limit is `RateLimitPerSecond × instances`. Today the account's total concurrency limit of 10 already caps the function at 10 instances (and cost). With a raised quota, `ReservedConcurrency` (e.g. 5) caps the instance count instead; beyond it Lambda itself returns 429. A sequential client slower than the refill rate (e.g. a `curl` loop over CloudFront at ~10 req/s vs 20 req/s) never sees a 429 at all, which is expected, not a bug. Real per-client limiting across instances needs shared state (Postgres counter: an extra write per request and more Neon wake-ups; or AWS WAF rate rules: ~$5–6/mo) and is deliberately not done.
 - **The Function URL only answers CloudFront.** The Function URL itself is public (`AuthType: NONE`), so CloudFront adds a secret `X-Origin-Verify` header (`OriginVerifySecret`) and netcidr (`NETCIDR_ORIGIN_SECRET`) returns 403 to anything without it. Always on: there's no rollout toggle, so the deploy that first adds or changes the secret 403s requests through not-yet-updated edges for a few minutes. CloudFront origin access control (OAC) is **not** usable here: for Lambda origins it replaces the viewer's `Authorization` header with a SigV4 signature (netcidr authenticates with `Authorization: Bearer`) and requires every POST/PUT client to send `x-amz-content-sha256`.
-- **The GitHub OIDC provider is retained, never deleted by the bootstrap stack.** It is account-wide. `CreateOidcProvider` is a condition on it, and an update that flips a condition to false deletes the resource — that happened once (re-running with `false` while the stack owned the provider) and broke every deploy with "The web identity token provided could not be validated". `DeletionPolicy`/`UpdateReplacePolicy: Retain` plus the recipe's auto-detection prevent a repeat.
-- **Deploy role IAM is scoped to the Lambda execution role** (`role/*-NetcidrFunctionRole-*`), not `role/netcidr*`. The old pattern matched the deploy role itself (`netcidr-deploy-gha`), so a workflow could rewrite its own policy.
-- **`sqlx` built with `tls-rustls`.** Neon (any cloud Postgres) requires TLS. Pure Rust, no system openssl dep — nothing for the cross-compile to link against.
-- **The Lambda binary is glibc, not musl.** `cargo lambda build --arm64` passes no explicit `--target`, so it resolves to `aarch64-unknown-linux-gnu` (`TARGET_ARM` in cargo-lambda's `target_arch.rs`). This works because Zig links against an older glibc than the build host has — bridging ubuntu's 2.39 (or macOS locally) down to AL2023's 2.34. Cross-compiling is unavoidable in both paths: CI is x86_64 Linux and Lambda is arm64 Linux; local dev is arm64 macOS. That's why `just install-tools` installs Zig.
+- **The Lambda binary is glibc, not musl.** `cargo lambda build --arm64` passes no explicit `--target`, so it resolves to `aarch64-unknown-linux-gnu` (`TARGET_ARM` in cargo-lambda's `target_arch.rs`). This works because Zig links against an older glibc than the build host has — bridging the build host (arm64 macOS) down to AL2023's glibc 2.34; the swamp build pins the `aarch64-unknown-linux-gnu.2.28` target. Cross-compiling is unavoidable: Lambda is arm64 Linux. That's why `just install-tools` installs Zig.
 
 ## Common operations
 

@@ -173,8 +173,6 @@ Resources:
       # EventBridge Scheduled Event (the default payload of a Schedule
       # rule); every other payload is an HTTP request. SAM creates the rule
       # and the permission for events.amazonaws.com to invoke the function.
-      # The explicit name keeps the rule inside the deploy role's
-      # `rule/netcidr*` scope (oidc-bootstrap.yaml).
       Events:
         ExpirySweep:
           Type: Schedule
