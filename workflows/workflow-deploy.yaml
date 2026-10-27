@@ -1,0 +1,181 @@
+id: fc809ce2-634f-4303-bb25-c01a2b0a72e2
+name: deploy
+description: >-
+  Build, audit, and deploy a netcidr release to AWS (Lambda + CloudFront via
+  the SAM stack), then point Cloudflare DNS at CloudFront. Replaces
+  .github/workflows/deploy.yml. Run with AWS_PROFILE=netcidr-admin.
+tags: {}
+vaults: [netcidr, default]
+inputs:
+  properties:
+    ref:
+      type: string
+      default: ""
+      description: netcidr tag, branch or SHA. Empty means the newest v* tag.
+    force:
+      type: boolean
+      default: false
+      description: Deploy even if the endpoint already serves this commit.
+jobs:
+  - name: deploy
+    description: Build → audit gate → package → plan → approve → apply → DNS → verify
+    steps:
+      - name: build
+        description: Fetch tags and build the Lambda binary in a clean worktree
+        task:
+          type: behavior
+          behavior: netcidr-artifact
+          methodName: build
+          inputs:
+            ref: ${{ inputs.ref }}
+
+      - name: audit
+        description: RustSec, dashboard and toolchain advisories for the built commit
+        dependsOn:
+          - step: build
+            condition: { type: succeeded }
+        task:
+          type: behavior
+          behavior: netcidr-artifact
+          methodName: audit
+
+      - name: security-gate
+        description: Stop before any AWS change if an unaccepted finding blocks
+        dependsOn:
+          - step: audit
+            condition: { type: succeeded }
+        task:
+          type: assert
+          expr: >-
+            data.latest("netcidr-artifact", "audit").attributes.blocking == 0
+          message: >-
+            ${{ data.latest("netcidr-artifact", "audit").attributes.blocking }} blocking
+            finding(s). See: swamp report get @dr_evil/netcidr-security --model netcidr-artifact --markdown
+          severity: high
+
+      - name: live-before
+        description: Record what the public endpoint serves now
+        dependsOn:
+          - step: security-gate
+            condition: { type: succeeded }
+        task:
+          type: behavior
+          behavior: netcidr-artifact
+          methodName: live
+
+      - name: artifact-bucket
+        description: Refresh SAM's managed bucket name from its stack
+        dependsOn:
+          - step: live-before
+            condition: { type: succeeded }
+        task:
+          type: behavior
+          behavior: sam-managed-stack
+          methodName: get
+          inputs:
+            identifier: aws-sam-cli-managed-default
+
+      - name: package
+        description: Upload the zip and render the template. Skipped (and so is everything after) when this commit is already live.
+        dependsOn:
+          - step: artifact-bucket
+            condition: { type: succeeded }
+        guard: >-
+          ${{ !inputs.force && data.latest("netcidr-artifact", "live").attributes.commit
+              == data.latest("netcidr-artifact", "build").attributes.commit }}
+        task:
+          type: behavior
+          behavior: netcidr-artifact
+          methodName: package
+
+      - name: plan
+        description: Create a CloudFormation change set and record what it would change
+        dependsOn:
+          - step: package
+            condition: { type: succeeded }
+        task:
+          type: behavior
+          behavior: netcidr-stack
+          methodName: plan
+
+      - name: approve
+        description: Human review of the change set before production changes. Skipped when the plan is empty.
+        dependsOn:
+          - step: plan
+            condition: { type: succeeded }
+        guard: >-
+          ${{ data.latest("netcidr-stack", "changeSet").attributes.status == "empty" }}
+        task:
+          type: manual_approval
+          timeout: 3600
+          prompt: >-
+            Review the planned stack changes first:
+            swamp data query 'modelName == "netcidr-stack" && name == "changeSet"' --select content
+            — then approve to execute them against production.
+
+      - name: apply
+        description: Execute the approved change set and wait for UPDATE_COMPLETE
+        dependsOn:
+          - step: approve
+            condition: { type: succeeded }
+        task:
+          type: behavior
+          behavior: netcidr-stack
+          methodName: apply
+
+      - name: stack-outputs
+        description: Re-read the stack so DNS uses the current CloudFront domain
+        dependsOn:
+          - step: apply
+            condition: { type: succeeded }
+        task:
+          type: behavior
+          behavior: netcidr-stack
+          methodName: get
+          inputs:
+            identifier: netcidr
+
+      - name: dns
+        description: Upsert the gray-cloud CNAME to CloudFront
+        dependsOn:
+          - step: stack-outputs
+            condition: { type: succeeded }
+        task:
+          type: behavior
+          behavior: netcidr-dns
+          methodName: upsert
+          inputs:
+            name: netcidr.cloudreaper.dev
+            type: CNAME
+            proxied: false
+            content: >-
+              ${{ data.latest("netcidr-stack", "netcidr").attributes.Outputs.filter(o, o.OutputKey == "CloudFrontDomain")[0].OutputValue }}
+
+      - name: verify
+        description: Wait for /version to report the built commit
+        dependsOn:
+          - step: dns
+            condition: { type: succeeded }
+        task:
+          type: behavior
+          behavior: netcidr-artifact
+          methodName: live
+          inputs:
+            expectCommit: ${{ data.latest("netcidr-artifact", "build").attributes.commit }}
+            waitSeconds: 300
+
+      - name: verified
+        description: Fail the run if the endpoint never switched to the new commit
+        dependsOn:
+          - step: verify
+            condition: { type: succeeded }
+        task:
+          type: assert
+          expr: >-
+            data.latest("netcidr-artifact", "live").attributes.commit
+            == data.latest("netcidr-artifact", "build").attributes.commit
+          message: >-
+            Endpoint serves ${{ data.latest("netcidr-artifact", "live").attributes.commit }},
+            expected ${{ data.latest("netcidr-artifact", "build").attributes.commit }}
+          severity: high
+version: 1

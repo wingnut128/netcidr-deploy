@@ -1,0 +1,22 @@
+type: '@dr_evil/netcidr-lambda-artifact'
+typeVersion: 2026.10.27.1
+id: 479a0443-aea9-4c13-9cf9-cd165a5175c5
+name: netcidr-artifact
+version: 1
+tags: {}
+globalArguments:
+  netcidrDir: /Volumes/data/dev/netcidr
+  workDir: /Users/mlapane/Library/Caches/netcidr-deploy
+  zigPath: /Users/mlapane/.local/share/zig/0.13.0/zig
+  oauthWebClientId: '${{ vault.get("netcidr", "gcp-client-id/client_id") }}'
+  templatePath: /Volumes/data/dev/netcidr-deploy/aws/template.yaml
+  # SAM's managed source bucket, read from its stack (sam-managed-stack).
+  artifactBucket: >-
+    ${{ data.latest("sam-managed-stack", "sam-managed").attributes.Outputs.filter(o, o.OutputKey == "SourceBucket")[0].OutputValue }}
+  region: us-east-2
+  publicUrl: https://netcidr.cloudreaper.dev
+  acceptedAdvisories: []
+reports:
+  require:
+    - '@dr_evil/netcidr-security'
+methods: {}

@@ -1,0 +1,66 @@
+{
+  "@swamp/1password": {
+    "version": "2026.10.23.1",
+    "pulledAt": "2026-10-27T14:55:09.770Z",
+    "files": [
+      ".swamp/pulled-extensions/@swamp/1password/files/LICENSE.txt",
+      ".swamp/pulled-extensions/@swamp/1password/files/README.md",
+      ".swamp/pulled-extensions/@swamp/1password/manifest.yaml",
+      ".swamp/pulled-extensions/@swamp/1password/vaults/_lib/tracing.ts",
+      ".swamp/pulled-extensions/@swamp/1password/vaults/onepassword.ts"
+    ],
+    "checksum": "0a70c6f5adb962c9012595147c4338ca8f70fe75e0a8cb1c44afdeea9cfcf840",
+    "filesChecksum": "646ddb8704d0b5b056229ff729acbf3a3fa0deac37db1529adcb36a2196d09c6",
+    "serverUrl": "https://swamp-club.com",
+    "publishedChannel": "stable"
+  },
+  "@swamp/aws/cloudformation": {
+    "version": "2026.10.25.1",
+    "pulledAt": "2026-10-27T14:55:13.667Z",
+    "files": [
+      ".swamp/pulled-extensions/@swamp/aws/cloudformation/files/LICENSE.txt",
+      ".swamp/pulled-extensions/@swamp/aws/cloudformation/files/README.md",
+      ".swamp/pulled-extensions/@swamp/aws/cloudformation/manifest.yaml",
+      ".swamp/pulled-extensions/@swamp/aws/cloudformation/models/_lib/aws.ts",
+      ".swamp/pulled-extensions/@swamp/aws/cloudformation/models/change_set.ts",
+      ".swamp/pulled-extensions/@swamp/aws/cloudformation/models/generated_template.ts",
+      ".swamp/pulled-extensions/@swamp/aws/cloudformation/models/guard_hook.ts",
+      ".swamp/pulled-extensions/@swamp/aws/cloudformation/models/hook_default_version.ts",
+      ".swamp/pulled-extensions/@swamp/aws/cloudformation/models/hook_type_config.ts",
+      ".swamp/pulled-extensions/@swamp/aws/cloudformation/models/hook_version.ts",
+      ".swamp/pulled-extensions/@swamp/aws/cloudformation/models/lambda_hook.ts",
+      ".swamp/pulled-extensions/@swamp/aws/cloudformation/models/module_default_version.ts",
+      ".swamp/pulled-extensions/@swamp/aws/cloudformation/models/module_version.ts",
+      ".swamp/pulled-extensions/@swamp/aws/cloudformation/models/public_type_version.ts",
+      ".swamp/pulled-extensions/@swamp/aws/cloudformation/models/publisher.ts",
+      ".swamp/pulled-extensions/@swamp/aws/cloudformation/models/resource_default_version.ts",
+      ".swamp/pulled-extensions/@swamp/aws/cloudformation/models/resource_version.ts",
+      ".swamp/pulled-extensions/@swamp/aws/cloudformation/models/stack.ts",
+      ".swamp/pulled-extensions/@swamp/aws/cloudformation/models/stack_set.ts",
+      ".swamp/pulled-extensions/@swamp/aws/cloudformation/models/type_activation.ts"
+    ],
+    "checksum": "3394df79fc1d06d409186237c2bb14958fe38b93a798a0b421f91a9eb5ffa9da",
+    "filesChecksum": "55c8ccb02213bc3b7ab190d50c807dfe991cf16f212dd64437382fa1651988fd",
+    "serverUrl": "https://swamp-club.com",
+    "publishedChannel": "stable"
+  },
+  "@webframp/cloudflare": {
+    "version": "2026.10.21.1",
+    "pulledAt": "2026-10-27T14:55:18.921Z",
+    "files": [
+      ".swamp/pulled-extensions/@webframp/cloudflare/files/LICENSE.md",
+      ".swamp/pulled-extensions/@webframp/cloudflare/files/README.md",
+      ".swamp/pulled-extensions/@webframp/cloudflare/manifest.yaml",
+      ".swamp/pulled-extensions/@webframp/cloudflare/models/cloudflare/_lib/api.ts",
+      ".swamp/pulled-extensions/@webframp/cloudflare/models/cloudflare/cache.ts",
+      ".swamp/pulled-extensions/@webframp/cloudflare/models/cloudflare/dns.ts",
+      ".swamp/pulled-extensions/@webframp/cloudflare/models/cloudflare/waf.ts",
+      ".swamp/pulled-extensions/@webframp/cloudflare/models/cloudflare/worker.ts",
+      ".swamp/pulled-extensions/@webframp/cloudflare/models/cloudflare/zone.ts"
+    ],
+    "checksum": "e3c2dcc5f56407e4c9e83fd24fe66f6302ddbcd27025bd975f75468891f1651e",
+    "filesChecksum": "9d562ec6c7a8af76007b1b1f8aad996125fcfc441a5084f44641b752ae981d4b",
+    "serverUrl": "https://swamp-club.com",
+    "publishedChannel": "stable"
+  }
+}
