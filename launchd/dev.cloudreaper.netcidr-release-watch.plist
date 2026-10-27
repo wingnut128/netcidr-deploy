@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Runs the release-watch swamp workflow every 30 minutes: announces on
+     Discord a netcidr release that isn't deployed yet. Install with:
+       cp launchd/dev.cloudreaper.netcidr-release-watch.plist ~/Library/LaunchAgents/
+       launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/dev.cloudreaper.netcidr-release-watch.plist
+     Remove with:
+       launchctl bootout gui/$(id -u)/dev.cloudreaper.netcidr-release-watch -->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>dev.cloudreaper.netcidr-release-watch</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/mlapane/.local/bin/swamp</string>
+    <string>workflow</string>
+    <string>run</string>
+    <string>release-watch</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>/Volumes/data/dev/netcidr-deploy</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    <key>SWAMP_HOME</key>
+    <string>/Users/mlapane/.swamp</string>
+    <key>SWAMP_CONFIG_DIR</key>
+    <string>/Users/mlapane/.config/swamp</string>
+  </dict>
+  <key>StartInterval</key>
+  <integer>1800</integer>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>/Users/mlapane/Library/Logs/swamp/netcidr-release-watch.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/mlapane/Library/Logs/swamp/netcidr-release-watch.log</string>
+</dict>
+</plist>

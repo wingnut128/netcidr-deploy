@@ -1,0 +1,10 @@
+type: '@dr_evil/netcidr-release-watch'
+typeVersion: 2026.10.27.1
+id: 13137f63-2426-43c5-8ff6-bfffa58e0f32
+name: netcidr-release-watch
+version: 1
+tags: {}
+globalArguments:
+  repo: wingnut128/netcidr
+  publicUrl: https://netcidr.cloudreaper.dev
+methods: {}
