@@ -30,63 +30,31 @@ Replaces the GCP/Cloud Run/Spacelift stack under `../terraform/v2/`. That
 tree is left in place for now; it can be deleted once this stack is
 confirmed working.
 
-## First-time setup
+## Deploying
+
+Deploys run through the swamp `deploy` workflow at the repo root
+(`workflows/workflow-deploy.yaml`); see the root `CLAUDE.md` for the steps,
+the security gate and the approval flow:
 
 ```sh
-# 1. Install tools (one-time, macOS)
-just install-tools
-
-# 2. Copy and edit local config
-cp samconfig.toml.example samconfig.toml      # AWS deploy params
-cp .env.example .env                          # Cloudflare token, zone, AWS_REGION, etc.
-
-# Or, if you keep secrets in 1Password (recommended):
-#   - Save your config to samconfig.toml.tpl with `op://Vault/Item/field`
-#     references in place of literal values.
-#   - `just deploy` renders the .tpl via `op inject` before deploying and
-#     removes the rendered samconfig.toml afterward (even on failure).
-#   - .env must set AWS_REGION (the stack region, e.g. us-east-2). Recipes
-#     that touch AWS refuse to run without it rather than guess a region;
-#     a fresh clone or a git worktree has no .env until you add one.
-#   - For .env, run with `op run --env-file=.env -- just <recipe>` so
-#     CLOUDFLARE_API_TOKEN etc. are injected at invocation time.
-
-# 3. Verify environment
-just doctor
-
-# 4. Stand up Neon (manually for now, or via the Neon MCP if wired in
-#    Claude Code). Grab the connection string and paste it into
-#    samconfig.toml under DatabaseUrl. Generate one stable PAT pepper and
-#    paste it into PatPepper:
-#    openssl rand -base64 32 | tr '+/' '-_' | tr -d '='
-
-# 5. Provision the ACM cert (one-time — auto-validates against Cloudflare DNS)
-op run --env-file=.env -- just cert-bootstrap
-# Paste the printed ARN into samconfig.toml.tpl under CertificateArn.
-
-# 6. Deploy
-just deploy-guided          # first time — writes deployment defaults
-just cloudflare-sync        # point Cloudflare CNAME (gray cloud) at CloudFront
+aws sso login --profile netcidr-admin
+AWS_PROFILE=netcidr-admin swamp workflow run deploy
 ```
 
-After that, `just ship` rebuilds + redeploys + syncs DNS in one shot.
+Stack parameters live in `models/@swamp/aws/cloudformation/stack/netcidr-stack.yaml`,
+with secrets read from the `netcidr` vault (1Password `netcidr-deployment`).
+The Cloudflare CNAME is upserted by the `dns` step (`netcidr-dns` model).
 
 ## What's where
 
 ```
 aws/
-├── template.yaml              SAM/CloudFormation: Lambda + Function URL + log group
-├── samconfig.toml.example     Stack parameters (DatabaseUrl, PatPepper, OidcAudience, …)
-├── .env.example               Cloudflare token + zone for the DNS sync
-├── justfile                   Recipes: install-tools, build, deploy, ship, destroy
-└── cloudflare/
-    └── update-dns.sh          Idempotent CNAME upsert via Cloudflare API
+└── template.yaml              SAM/CloudFormation: Lambda + Function URL + log group + CloudFront
 ```
 
 The Rust Lambda binary lives in the `netcidr` source repo under
-`src/bin/lambda.rs` (built with `cargo lambda`). `just build` compiles it
-into `<netcidr-repo>/target/lambda/lambda/bootstrap`, which `template.yaml`
-picks up via `CodeUri`.
+`src/bin/lambda.rs` (built with `cargo lambda`). The workflow's `build` step
+compiles it and `package` uploads the zip and points `CodeUri` at it.
 
 ## Configuration that lives outside this directory
 
@@ -102,26 +70,32 @@ These are one-time clicks not worth automating:
   redirect. Put its client ID and secret in `OidcCliClientId` and
   `OidcCliClientSecret`, or in the 1Password item
   `netcidr-deployment/gcp-cli-client` (fields `client_id` and
-  `client_secret`) for CI. The template appends the client ID to
+  `client_secret`). The template appends the client ID to
   `NETCIDR_OIDC_AUDIENCE` itself, so leave `OidcAudience` as the Web client
   ID only. If both values are left empty, CLI login stays off and the CLI
   falls back to `NETCIDR_API_TOKEN`. To check it worked, look for an
   `"auth"` block in `GET https://<host>/features`.
 - **Neon project.** Create at [neon.tech](https://neon.tech) → grab the
-  pooled connection string → paste into `DatabaseUrl`.
-- **PAT pepper.** Generate one base64url-no-pad value and paste it into
-  `PatPepper`. Keep it stable; changing it invalidates existing PATs.
-- **Cloudflare API token.** Zone-level token with `Zone:DNS:Edit`. Paste
-  into `.env`.
+  pooled connection string → store it in 1Password
+  `netcidr-deployment/neon` (`connect_string`).
+- **PAT pepper.** Generate one base64url-no-pad value
+  (`openssl rand -base64 32 | tr '+/' '-_' | tr -d '='`) and store it in
+  `netcidr-deployment/pat-pepper` (`value`). Keep it stable; changing it invalidates existing PATs.
+- **Cloudflare API token.** Zone-level token with `Zone:DNS:Edit`. Store it in
+  `netcidr-deployment/cloudflare` (`api_token`, plus `zone_id`).
+- **ACM certificate** for the public hostname, in **us-east-1**,
+  DNS-validated through Cloudflare. ACM renews it automatically while the
+  validation CNAME stays in place. Its ARN goes in
+  `netcidr-deployment/certificate` (`arn`).
 
 ## Operate
 
 ```sh
-just url                # print the CloudFront domain
-just logs               # tail Lambda logs
-just logs-recent        # last hour, no follow
-just console            # open the CFN stack in the AWS console
-just destroy            # delete everything (prompts for confirmation)
+export AWS_PROFILE=netcidr-admin AWS_REGION=us-east-2
+sam logs --stack-name netcidr --tail                       # tail Lambda logs
+sam logs --stack-name netcidr --start-time '1 hour ago'    # last hour, no follow
+aws cloudformation describe-stacks --stack-name netcidr \
+  --query 'Stacks[0].Outputs'                              # CloudFront domain, Function URL
 ```
 
 **Expiry sweep.** An EventBridge rule (`netcidr-expiry-sweep`, default
@@ -144,8 +118,7 @@ without it (403). It is always on.
 
 1. Create the 1Password item `netcidr-deployment/origin-verify` with a
    `secret` field of at least 32 random characters (e.g.
-   `openssl rand -base64 48 | tr -d '/+=' | cut -c1-48`), or set
-   `OriginVerifySecret` in `samconfig.toml`.
+   `openssl rand -base64 48 | tr -d '/+=' | cut -c1-48`).
 2. Deploy. The Lambda starts enforcing immediately, while CloudFront takes a
    few minutes to roll the header out to every edge; requests through an
    edge that hasn't caught up get 403 until it does. The same applies when
@@ -172,8 +145,8 @@ is 10; `ReservedConcurrency` can cap it lower once that quota is raised). A norm
 and never gets a 429. To check the limiter is keying on the viewer address,
 deploy with a limit a loop *can* exceed, then put it back:
 
-1. Set repo variables `RATE_LIMIT_PER_SECOND=1` and `RATE_LIMIT_BURST=3`
-   (or the same parameters in `samconfig.toml`) and deploy.
+1. Set `RateLimitPerSecond: "1"` and `RateLimitBurst: "3"` in the
+   `netcidr-stack` model and deploy.
 2. From one machine, expect a few 200s and then 429s:
 
    ```sh
@@ -185,8 +158,7 @@ deploy with a limit a loop *can* exceed, then put it back:
    shares one bucket.
 4. Back on the first machine, a spoofed header must still get 429:
    `curl -s -o /dev/null -w '%{http_code}\n' -H 'CloudFront-Viewer-Address: 203.0.113.99:1234' https://<PublicHostname>/health`
-5. Delete the two variables (the workflow then passes 20 / 50 again) and
-   deploy.
+5. Put them back to `"20"` / `"50"` and deploy.
 
 Several warm instances each hold their own bucket, so a run can
 occasionally see a 200 after 429s; a consistent 200 run in step 2 is the

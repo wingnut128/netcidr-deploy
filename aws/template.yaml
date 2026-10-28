@@ -50,9 +50,8 @@ Parameters:
     Type: String
     Description: |
       ARN of an ACM certificate covering PublicHostname. CloudFront requires
-      certs to live in us-east-1 regardless of the stack's region. Use
-      `just cert-bootstrap` to provision and validate one against Cloudflare
-      DNS, then paste the ARN here.
+      certs to live in us-east-1 regardless of the stack's region. DNS-validate
+      it through Cloudflare so ACM can renew it automatically.
   OriginVerifySecret:
     Type: String
     NoEcho: true

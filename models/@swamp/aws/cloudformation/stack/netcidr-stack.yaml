@@ -15,8 +15,7 @@ globalArguments:
   Capabilities:
     - CAPABILITY_IAM
     - CAPABILITY_AUTO_EXPAND
-  # Same 1Password items as aws/samconfig.toml.tpl, so one rotation
-  # covers both paths.
+  # Secrets come from the netcidr vault (1Password netcidr-deployment).
   # LogRetentionDays and ExpirySweepSchedule keep their template defaults.
   Parameters:
     AppName: netcidr

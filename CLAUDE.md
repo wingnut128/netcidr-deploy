@@ -73,39 +73,17 @@ Cloudflare hosts the DNS in **gray-cloud (DNS-only) mode** — no proxy, no Work
 ```
 aws/
 ├── template.yaml                  SAM/CloudFormation: Lambda + Function URL + log group + CloudFront
-├── samconfig.toml.example         Stack parameters (DatabaseUrl, OidcAudience, PublicHostname, CertificateArn, …)
-├── .env.example                   Cloudflare token + zone for the DNS sync + cert bootstrap
-├── justfile                       Recipes: install-tools, doctor, build, deploy, ship, cert-bootstrap, destroy
-├── README.md                      First-time setup walkthrough
-└── cloudflare/
-    ├── update-dns.sh              Idempotent CNAME upsert (gray cloud)
-    └── bootstrap-cert.sh          One-time ACM cert request + Cloudflare DNS validation
+└── README.md                      One-time setup outside AWS, origin lockdown, rate-limit checks
+models/                            swamp models: netcidr-artifact (build/package), netcidr-stack (parameters), netcidr-dns
+workflows/                         swamp workflows: deploy, release-watch
+extensions/                        local swamp behaviors and reports
 ```
 
-The Rust Lambda binary lives in the `netcidr` source repo at `src/bin/lambda.rs`, gated behind the `lambda` Cargo feature. `aws/justfile`'s `build` recipe invokes `cargo lambda build` against that crate; the SAM template's `CodeUri` points at the resulting `target/lambda/lambda/bootstrap`.
+The Rust Lambda binary lives in the `netcidr` source repo at `src/bin/lambda.rs`, gated behind the `lambda` Cargo feature. The deploy workflow's `build` step runs `cargo lambda build` against that crate, and `package` uploads the zip and points the template's `CodeUri` at it.
 
-## Commands
+## Deploying (swamp)
 
-All work happens inside `aws/`:
-
-```bash
-cd aws
-just install-tools     # one-time: zig + cargo-lambda + sam CLI
-just doctor            # sanity-check tooling, AWS creds, samconfig.toml, .env
-just cert-bootstrap    # one-time: provision ACM cert, auto-validate via Cloudflare DNS
-just deploy            # build + sam deploy (renders samconfig.toml.tpl via op inject if present)
-just cloudflare-sync   # upsert CNAME pointing at CloudFront (gray cloud)
-just ship              # deploy + cloudflare-sync in one shot
-just url               # print the public URL
-just logs              # tail Lambda logs
-just destroy           # delete the CFN stack (prompts)
-```
-
-`just deploy` and `just cloudflare-sync` are typically wrapped in `op run --env-file=.env -- ...` so 1Password injects secrets at invocation time.
-
-## Deploying locally (swamp)
-
-The swamp `deploy` workflow (`workflows/workflow-deploy.yaml`) builds, audits and deploys from this machine, reading the same 1Password items as `aws/samconfig.toml.tpl` through the `netcidr` vault (`netcidr-deployment` in 1Password):
+The swamp `deploy` workflow (`workflows/workflow-deploy.yaml`) builds, audits and deploys from this machine, reading secrets through the `netcidr` vault (`netcidr-deployment` in 1Password):
 
 ```bash
 aws sso login --profile netcidr-admin
@@ -130,34 +108,26 @@ The `release-watch` workflow compares netcidr's newest published GitHub release 
 
 ## Secrets handling
 
-Two patterns supported:
-
-1. **Plaintext files** (gitignored): copy `samconfig.toml.example` → `samconfig.toml`, `.env.example` → `.env`, fill in values.
-2. **1Password-templated** (recommended): save the config as `samconfig.toml.tpl` with `op://...` references and `.env` with `op://...` references. `just deploy` runs `op inject` to render the .tpl into a real samconfig before SAM, then deletes the rendered file on exit (success or failure) via `trap`. Cloudflare recipes use `op run --env-file=.env`.
-
-Both `aws/samconfig.toml` and `aws/samconfig.toml.tpl` are gitignored.
+Stack parameters are set in `models/@swamp/aws/cloudformation/stack/netcidr-stack.yaml`. Secrets there are `vault.get("netcidr", "<item>/<field>")` references to 1Password items in `netcidr-deployment`; the Cloudflare token and zone ID (`cloudflare/api_token`, `cloudflare/zone_id`) are read the same way by `models/@webframp/cloudflare/dns/netcidr-dns.yaml`. Nothing secret lives in the repo.
 
 ## Key parameters
 
 | Parameter | Where it goes | Notes |
 |---|---|---|
-| `DatabaseUrl` | samconfig | Neon connection string with `?sslmode=require` |
-| `PatPepper` | samconfig | Stable base64url-no-pad secret for `NETCIDR_PAT_PEPPER`; changing it invalidates existing PATs |
-| `OidcAudience` | samconfig | Google OAuth Web Client ID — also the dashboard's `VITE_OAUTH_WEB_CLIENT_ID`. Keep it a single ID; the template appends the CLI client itself |
-| `OidcCliClientId` / `OidcCliClientSecret` | samconfig | Google OAuth **Desktop app** client for `netcidr login`. Both empty (the default) = CLI login off. When set, the server advertises it on `/features` and accepts its tokens |
+| `DatabaseUrl` | vault `neon/connect_string` | Neon connection string with `?sslmode=require` |
+| `PatPepper` | vault `pat-pepper/value` | Stable base64url-no-pad secret for `NETCIDR_PAT_PEPPER`; changing it invalidates existing PATs |
+| `OidcAudience` | vault `gcp-client-id/client_id` | Google OAuth Web Client ID — also the dashboard's `VITE_OAUTH_WEB_CLIENT_ID`. Keep it a single ID; the template appends the CLI client itself |
+| `OidcCliClientId` / `OidcCliClientSecret` | vault `gcp-cli-client/client_id`, `/client_secret` | Google OAuth **Desktop app** client for `netcidr login`. Both empty (the default) = CLI login off. When set, the server advertises it on `/features` and accepts its tokens |
 | _(access control)_ | database | Who may sign in lives in netcidr's users directory (ADR-0006), managed at runtime via the dashboard Users page or `netcidr admin user`. The Lambda pins `NETCIDR_ALLOWLIST_MODE=closed` in `template.yaml`. |
-| `PublicHostname` | samconfig | The hostname users hit (e.g. `netcidr.cloudreaper.dev`) |
-| `ExpirySweepSchedule` | samconfig (optional) | EventBridge cadence for netcidr's expiry sweep. Default `rate(1 hour)` |
-| `RateLimitPerSecond` / `RateLimitBurst` | samconfig or repo variables `RATE_LIMIT_PER_SECOND` / `RATE_LIMIT_BURST` (optional) | netcidr's per-client limiter. Defaults 20 / 50 |
-| `ReservedConcurrency` | samconfig or repo variable `RESERVED_CONCURRENCY` (optional) | Function reserved concurrency. Default `0` (unreserved): this account's total limit is 10, all of which AWS keeps unreserved. Raise the Lambda "Concurrent executions" quota, then set e.g. 5 |
-| `OriginVerifySecret` | samconfig / 1Password (`origin-verify/secret`) | ≥ 32 random chars; CloudFront sends it as `X-Origin-Verify`. Rotate by deploying a new value; CloudFront and Lambda update together, so expect a few minutes of 403s while edges catch up |
-| `HoneycombApiKey` | swamp stack model / 1Password (`honeycomb-netcidr/credential`) | Honeycomb ingest key (`netcidr-prod` environment). Set → the template adds `OTEL_EXPORTER_OTLP_ENDPOINT`/`_HEADERS`/`OTEL_SERVICE_NAME` and the Lambda exports traces (netcidr ADR-0004); empty → export off. The artifact builds with `features: lambda,ipam-postgres,otel` so the exporter is compiled in. Like `DatabaseUrl`, it ends up as a plain Lambda env var, readable by anyone with `lambda:GetFunctionConfiguration` |
+| `PublicHostname` | stack model | The hostname users hit (e.g. `netcidr.cloudreaper.dev`) |
+| `ExpirySweepSchedule` | template default (optional) | EventBridge cadence for netcidr's expiry sweep. Default `rate(1 hour)` |
+| `RateLimitPerSecond` / `RateLimitBurst` | stack model | netcidr's per-client limiter. Defaults 20 / 50 |
+| `ReservedConcurrency` | stack model | Function reserved concurrency. Default `0` (unreserved): this account's total limit is 10, all of which AWS keeps unreserved. Raise the Lambda "Concurrent executions" quota, then set e.g. 5 |
+| `OriginVerifySecret` | vault `origin-verify/secret` | ≥ 32 random chars; CloudFront sends it as `X-Origin-Verify`. Rotate by deploying a new value; CloudFront and Lambda update together, so expect a few minutes of 403s while edges catch up |
+| `HoneycombApiKey` | vault `honeycomb-netcidr/credential` | Honeycomb ingest key (`netcidr-prod` environment). Set → the template adds `OTEL_EXPORTER_OTLP_ENDPOINT`/`_HEADERS`/`OTEL_SERVICE_NAME` and the Lambda exports traces (netcidr ADR-0004); empty → export off. The artifact builds with `features: lambda,ipam-postgres,otel` so the exporter is compiled in. Like `DatabaseUrl`, it ends up as a plain Lambda env var, readable by anyone with `lambda:GetFunctionConfiguration` |
 | `OtlpEndpoint` | template default (optional) | OTLP/HTTP base URL, default `https://api.honeycomb.io`; EU teams use `https://api.eu1.honeycomb.io` |
-| `CertificateArn` | samconfig | ACM cert ARN — must be in **us-east-1** (CloudFront constraint), regardless of stack region |
-| `CLOUDFLARE_API_TOKEN` | .env | Token needs `Zone:DNS:Edit` |
-| `CLOUDFLARE_ZONE_ID` | .env | From the zone overview page |
-| `CLOUDFLARE_RECORD_NAME` | .env | Subdomain only (e.g. `netcidr` for `netcidr.cloudreaper.dev`) |
-| `CLOUDFLARE_PROXIED` | .env | Must be `false` — gray cloud only. CloudFront terminates user-facing TLS. |
+| `CertificateArn` | vault `certificate/arn` | ACM cert ARN — must be in **us-east-1** (CloudFront constraint), regardless of stack region |
+| Cloudflare token / zone | vault `cloudflare/api_token`, `cloudflare/zone_id` | Token needs `Zone:DNS:Edit`. The `dns` step upserts `netcidr` as a gray-cloud CNAME (`proxied: false`); CloudFront terminates user-facing TLS |
 
 ## Architectural decisions baked in
 
@@ -168,22 +138,21 @@ Both `aws/samconfig.toml` and `aws/samconfig.toml.tpl` are gitignored.
 - **Rate limiting keys on `CloudFront-Viewer-Address`.** netcidr's per-IP limiter (20 req/s, burst 50) trusts exactly one address source. `NETCIDR_CLIENT_IP_SOURCE=header:cloudfront-viewer-address` points it at the viewer address CloudFront adds; the `AllViewerExceptHostHeader` policy already forwards it. `X-Forwarded-For` would be wrong: CloudFront *appends* to whatever the client sent, so its left side is spoofable (netcidr ADR-0005 amendment).
 - **The limiter's bucket is per Lambda instance, so reserved concurrency bounds it.** Each execution environment keeps its own in-memory token bucket and serves one request at a time, so parallel requests fan out to fresh instances with full buckets: the effective per-client limit is `RateLimitPerSecond × instances`. Today the account's total concurrency limit of 10 already caps the function at 10 instances (and cost). With a raised quota, `ReservedConcurrency` (e.g. 5) caps the instance count instead; beyond it Lambda itself returns 429. A sequential client slower than the refill rate (e.g. a `curl` loop over CloudFront at ~10 req/s vs 20 req/s) never sees a 429 at all, which is expected, not a bug. Real per-client limiting across instances needs shared state (Postgres counter: an extra write per request and more Neon wake-ups; or AWS WAF rate rules: ~$5–6/mo) and is deliberately not done.
 - **The Function URL only answers CloudFront.** The Function URL itself is public (`AuthType: NONE`), so CloudFront adds a secret `X-Origin-Verify` header (`OriginVerifySecret`) and netcidr (`NETCIDR_ORIGIN_SECRET`) returns 403 to anything without it. Always on: there's no rollout toggle, so the deploy that first adds or changes the secret 403s requests through not-yet-updated edges for a few minutes. CloudFront origin access control (OAC) is **not** usable here: for Lambda origins it replaces the viewer's `Authorization` header with a SigV4 signature (netcidr authenticates with `Authorization: Bearer`) and requires every POST/PUT client to send `x-amz-content-sha256`.
-- **The Lambda binary is glibc, not musl.** `cargo lambda build --arm64` passes no explicit `--target`, so it resolves to `aarch64-unknown-linux-gnu` (`TARGET_ARM` in cargo-lambda's `target_arch.rs`). This works because Zig links against an older glibc than the build host has — bridging the build host (arm64 macOS) down to AL2023's glibc 2.34; the swamp build pins the `aarch64-unknown-linux-gnu.2.28` target. Cross-compiling is unavoidable: Lambda is arm64 Linux. That's why `just install-tools` installs Zig.
+- **The Lambda binary is glibc, not musl.** `cargo lambda build --arm64` passes no explicit `--target`, so it resolves to `aarch64-unknown-linux-gnu` (`TARGET_ARM` in cargo-lambda's `target_arch.rs`). This works because Zig links against an older glibc than the build host has — bridging the build host (arm64 macOS) down to AL2023's glibc 2.34; the swamp build pins the `aarch64-unknown-linux-gnu.2.28` target. Cross-compiling is unavoidable: Lambda is arm64 Linux. That's why the build needs Zig.
 
 ## Common operations
 
 ```bash
-# Just redeploy after code changes
-cd aws && just ship
+# Redeploy: see "Deploying (swamp)" above
+AWS_PROFILE=netcidr-admin swamp workflow run deploy
 
 # Inspect live config
 aws lambda get-function-configuration --function-name netcidr --region us-east-2 \
   --query 'Environment.Variables'
 
-# Look at logs from the last hour without tailing
-cd aws && just logs-recent
+# Logs from the last hour without tailing
+sam logs --stack-name netcidr --region us-east-2 --start-time '1 hour ago'
 
-# Tear it all down
-cd aws && just destroy           # deletes CFN stack
-# (cert and Cloudflare CNAME survive — manually clean up if you want them gone)
+# Tear it all down (cert and Cloudflare CNAME survive; clean up manually if wanted)
+sam delete --stack-name netcidr --region us-east-2
 ```
