@@ -517,7 +517,7 @@ export const behavior = {
           "--bin",
           "lambda",
           "--features",
-          "lambda,ipam-postgres",
+          ga.features,
         ], {
           cwd: src,
           env: {
