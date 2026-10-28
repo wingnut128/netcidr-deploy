@@ -152,6 +152,8 @@ Both `aws/samconfig.toml` and `aws/samconfig.toml.tpl` are gitignored.
 | `RateLimitPerSecond` / `RateLimitBurst` | samconfig or repo variables `RATE_LIMIT_PER_SECOND` / `RATE_LIMIT_BURST` (optional) | netcidr's per-client limiter. Defaults 20 / 50 |
 | `ReservedConcurrency` | samconfig or repo variable `RESERVED_CONCURRENCY` (optional) | Function reserved concurrency. Default `0` (unreserved): this account's total limit is 10, all of which AWS keeps unreserved. Raise the Lambda "Concurrent executions" quota, then set e.g. 5 |
 | `OriginVerifySecret` | samconfig / 1Password (`origin-verify/secret`) | ≥ 32 random chars; CloudFront sends it as `X-Origin-Verify`. Rotate by deploying a new value; CloudFront and Lambda update together, so expect a few minutes of 403s while edges catch up |
+| `HoneycombApiKey` | swamp stack model / 1Password (`honeycomb-netcidr/credential`) | Honeycomb ingest key (`netcidr-prod` environment). Set → the template adds `OTEL_EXPORTER_OTLP_ENDPOINT`/`_HEADERS`/`OTEL_SERVICE_NAME` and the Lambda exports traces (netcidr ADR-0004); empty → export off. The artifact builds with `features: lambda,ipam-postgres,otel` so the exporter is compiled in. Like `DatabaseUrl`, it ends up as a plain Lambda env var, readable by anyone with `lambda:GetFunctionConfiguration` |
+| `OtlpEndpoint` | template default (optional) | OTLP/HTTP base URL, default `https://api.honeycomb.io`; EU teams use `https://api.eu1.honeycomb.io` |
 | `CertificateArn` | samconfig | ACM cert ARN — must be in **us-east-1** (CloudFront constraint), regardless of stack region |
 | `CLOUDFLARE_API_TOKEN` | .env | Token needs `Zone:DNS:Edit` |
 | `CLOUDFLARE_ZONE_ID` | .env | From the zone overview page |

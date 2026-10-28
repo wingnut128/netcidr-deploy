@@ -9,6 +9,9 @@ globalArguments:
   workDir: /Users/mlapane/Library/Caches/netcidr-deploy
   zigPath: /Users/mlapane/.local/share/zig/0.13.0/zig
   oauthWebClientId: '${{ vault.get("netcidr", "gcp-client-id/client_id") }}'
+  # otel compiles in OTLP trace export; it stays inert until the stack sets
+  # OTEL_EXPORTER_OTLP_ENDPOINT (HoneycombApiKey in netcidr-stack).
+  features: lambda,ipam-postgres,otel
   templatePath: /Volumes/data/dev/netcidr-deploy/aws/template.yaml
   # SAM's managed source bucket, read from its stack (sam-managed-stack).
   artifactBucket: >-
