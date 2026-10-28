@@ -1,8 +1,8 @@
-// Notices a netcidr release that isn't deployed yet. `check` compares the
-// newest published GitHub release with what the public endpoint's /version
-// reports, and decides whether that release still needs announcing;
-// `acknowledge` records the announcement once it was sent, so each release
-// is announced once.
+// Announces each new netcidr release. `check` compares the newest published
+// GitHub release with what the public endpoint's /version reports, decides
+// whether that release still needs announcing, and words the announcement
+// (already live, or still to deploy); `acknowledge` records the
+// announcement once it was sent, so each release is announced once.
 //
 // Reads only public endpoints, so it needs no credentials and can run
 // unattended. Deploying stays a manual `swamp workflow run deploy`.
@@ -23,8 +23,10 @@ const StatusSchema = z.object({
   pending: z.boolean(),
   // Last release announced; carried across checks.
   notifiedTag: z.string(),
-  // pending, and not announced yet.
+  // The newest release hasn't been announced yet, deployed or not.
   needsNotify: z.boolean(),
+  // Discord announcement for latestTag.
+  message: z.string(),
   checkedAt: z.string(),
 });
 
@@ -49,6 +51,22 @@ async function getJson(url: string, headers: Record<string, string> = {}) {
   return await res.json();
 }
 
+const DEPLOY_COMMAND = "`AWS_PROFILE=netcidr-admin swamp workflow run deploy`";
+
+/** Whether to announce the newest release, and the announcement text. */
+export function decide(
+  release: { tag: string; url: string },
+  liveVersion: string,
+  notifiedTag: string,
+): { pending: boolean; needsNotify: boolean; message: string } {
+  const pending = release.tag !== `v${liveVersion}`;
+  const message = pending
+    ? `netcidr ${release.tag} is released but not deployed (live: v${liveVersion}). ` +
+      `${release.url} — deploy from netcidr-deploy with ${DEPLOY_COMMAND}`
+    : `netcidr ${release.tag} is released and already live. ${release.url}`;
+  return { pending, needsNotify: release.tag !== notifiedTag, message };
+}
+
 export const model = {
   type: "@dr_evil/netcidr-release-watch",
   version: "2026.10.27.1",
@@ -64,7 +82,7 @@ export const model = {
   methods: {
     check: {
       description:
-        "Compare the newest published release with the deployed /version",
+        "Compare the newest published release with the deployed /version and word its announcement",
       arguments: z.object({}),
       execute: async (_args: Record<string, never>, ctx: Context) => {
         const ga = ctx.globalArgs;
@@ -80,17 +98,20 @@ export const model = {
         const live = await getJson(`${ga.publicUrl}/version`);
         const previous = await ctx.readResource?.("status") as Status | null;
 
-        const pending = release.tag_name !== `v${live.version}`;
         const notifiedTag = previous?.notifiedTag ?? "";
+        const decision = decide(
+          { tag: release.tag_name, url: release.html_url },
+          live.version,
+          notifiedTag,
+        );
         const status: Status = {
           latestTag: release.tag_name,
           releaseUrl: release.html_url,
           publishedAt: release.published_at,
           liveVersion: live.version,
           liveCommit: live.commit,
-          pending,
           notifiedTag,
-          needsNotify: pending && release.tag_name !== notifiedTag,
+          ...decision,
           checkedAt: new Date().toISOString(),
         };
         ctx.logger.info("latest {tag}, live v{live}, notify: {notify}", {
@@ -103,7 +124,7 @@ export const model = {
       },
     },
     acknowledge: {
-      description: "Record that the pending release was announced",
+      description: "Record that the newest release was announced",
       arguments: z.object({}),
       execute: async (_args: Record<string, never>, ctx: Context) => {
         const status = await ctx.readResource!("status") as Status | null;
