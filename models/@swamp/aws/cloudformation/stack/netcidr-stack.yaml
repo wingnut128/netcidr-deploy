@@ -28,7 +28,8 @@ globalArguments:
     OidcCliClientSecret: '${{ vault.get("netcidr", "gcp-cli-client/client_secret") }}'
     CertificateArn: '${{ vault.get("netcidr", "certificate/arn") }}'
     OriginVerifySecret: '${{ vault.get("netcidr", "origin-verify/secret") }}'
-    # Honeycomb ingest key (netcidr-prod environment); empty turns OTLP off.
+    # Honeycomb ingest key (netcidr-prod environment). The vault item must
+    # exist or the deploy fails; an empty value turns OTLP export off.
     HoneycombApiKey: '${{ vault.get("netcidr", "honeycomb-netcidr/credential") }}'
     RateLimitPerSecond: "20"
     RateLimitBurst: "50"

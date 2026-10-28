@@ -111,14 +111,13 @@ The swamp `deploy` workflow (`workflows/workflow-deploy.yaml`) builds, audits an
 aws sso login --profile netcidr-admin
 AWS_PROFILE=netcidr-admin swamp workflow run deploy                      # newest v* tag
 AWS_PROFILE=netcidr-admin swamp workflow run deploy --input ref=v0.33.2  # specific ref
-AWS_PROFILE=netcidr-admin swamp workflow run deploy --input force=true   # redeploy the live commit
 ```
 
 Steps: `build` (cargo-lambda in a worktree under `~/Library/Caches/netcidr-deploy`) → `audit` → `security-gate` → `live-before` (`/version`) → `package` (zip to SAM's bucket, keyed by sha256) → `plan` (CloudFormation change set) → `approve` → `apply` → `dns` (gray-cloud CNAME upsert) → `verify` (`/version` serves the built commit).
 
 - **Security gate.** An unaccepted high, critical or unknown-severity advisory in the shipped Rust crates, the dashboard, or cargo-lambda stops the run before any AWS change. Read the findings and fixes with `swamp report get @dr_evil/netcidr-security --model netcidr-artifact --markdown`. Accept an advisory in netcidr's `deny.toml` (the fix belongs upstream), or temporarily via `acceptedAdvisories` (id, reason, expires) in `models/@dr_evil/netcidr-lambda-artifact/netcidr-artifact.yaml`. Tool pins (Zig, cargo-lambda) move only for security or compatibility reasons.
 - **Approval.** The run pauses at `approve`. Review the change set with `swamp data query 'modelName == "netcidr-stack" && name == "changeSet"' --select content`, then `swamp workflow approve deploy approve --run <id>` and `AWS_PROFILE=netcidr-admin swamp workflow resume deploy --run <id>` (the run suspends; approval alone doesn't restart it). An empty plan skips approval.
-- **Skip.** If `/version` already reports the built commit, everything from `package` on is skipped.
+- **Skip.** The change set decides: if the built binary (S3 key = bootstrap sha256), the template and the stack parameters all match what's deployed, the plan is empty and everything from `approve` on is skipped. Rebuilding the same commit and features reproduces the same bootstrap, so a no-op run stays a no-op; a features, template or parameter change on the live commit still ships.
 - A code-only release plans as `NetcidrFunction` plus two "Dynamic" cascades (`NetcidrFunctionExpirySweep`, `...Permission`) through `NetcidrFunction.Arn`; the ARN doesn't change, so those are no-ops.
 
 ### Release notifications

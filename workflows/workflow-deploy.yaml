@@ -12,10 +12,6 @@ inputs:
       type: string
       default: ""
       description: netcidr tag, branch or SHA. Empty means the newest v* tag.
-    force:
-      type: boolean
-      default: false
-      description: Deploy even if the endpoint already serves this commit.
 jobs:
   - name: deploy
     description: Build → audit gate → package → plan → approve → apply → DNS → verify
@@ -76,13 +72,13 @@ jobs:
             identifier: aws-sam-cli-managed-default
 
       - name: package
-        description: Upload the zip and render the template. Skipped (and so is everything after) when this commit is already live.
+        # Always runs: the upload is content-addressed (skipped if present) and
+        # the change set is what decides whether anything ships. A commit-only
+        # check here missed feature, template and parameter changes.
+        description: Upload the zip (if new) and render the template
         dependsOn:
           - step: artifact-bucket
             condition: { type: succeeded }
-        guard: >-
-          ${{ !inputs.force && data.latest("netcidr-artifact", "live").attributes.commit
-              == data.latest("netcidr-artifact", "build").attributes.commit }}
         task:
           type: behavior
           behavior: netcidr-artifact
@@ -99,7 +95,7 @@ jobs:
           methodName: plan
 
       - name: approve
-        description: Human review of the change set before production changes. Skipped when the plan is empty.
+        description: Human review of the change set before production changes. Skipped (and so is everything after) when the plan is empty.
         dependsOn:
           - step: plan
             condition: { type: succeeded }
