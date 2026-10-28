@@ -111,14 +111,13 @@ The swamp `deploy` workflow (`workflows/workflow-deploy.yaml`) builds, audits an
 aws sso login --profile netcidr-admin
 AWS_PROFILE=netcidr-admin swamp workflow run deploy                      # newest v* tag
 AWS_PROFILE=netcidr-admin swamp workflow run deploy --input ref=v0.33.2  # specific ref
-AWS_PROFILE=netcidr-admin swamp workflow run deploy --input force=true   # redeploy the live commit
 ```
 
 Steps: `build` (cargo-lambda in a worktree under `~/Library/Caches/netcidr-deploy`) → `audit` → `security-gate` → `live-before` (`/version`) → `package` (zip to SAM's bucket, keyed by sha256) → `plan` (CloudFormation change set) → `approve` → `apply` → `dns` (gray-cloud CNAME upsert) → `verify` (`/version` serves the built commit).
 
 - **Security gate.** An unaccepted high, critical or unknown-severity advisory in the shipped Rust crates, the dashboard, or cargo-lambda stops the run before any AWS change. Read the findings and fixes with `swamp report get @dr_evil/netcidr-security --model netcidr-artifact --markdown`. Accept an advisory in netcidr's `deny.toml` (the fix belongs upstream), or temporarily via `acceptedAdvisories` (id, reason, expires) in `models/@dr_evil/netcidr-lambda-artifact/netcidr-artifact.yaml`. Tool pins (Zig, cargo-lambda) move only for security or compatibility reasons.
 - **Approval.** The run pauses at `approve`. Review the change set with `swamp data query 'modelName == "netcidr-stack" && name == "changeSet"' --select content`, then `swamp workflow approve deploy approve --run <id>` and `AWS_PROFILE=netcidr-admin swamp workflow resume deploy --run <id>` (the run suspends; approval alone doesn't restart it). An empty plan skips approval.
-- **Skip.** If `/version` already reports the built commit, everything from `package` on is skipped.
+- **Skip.** The change set decides: if the built binary (S3 key = bootstrap sha256), the template and the stack parameters all match what's deployed, the plan is empty and everything from `approve` on is skipped. Rebuilding the same commit and features reproduces the same bootstrap, so a no-op run stays a no-op; a features, template or parameter change on the live commit still ships.
 - A code-only release plans as `NetcidrFunction` plus two "Dynamic" cascades (`NetcidrFunctionExpirySweep`, `...Permission`) through `NetcidrFunction.Arn`; the ARN doesn't change, so those are no-ops.
 
 ### Release notifications
@@ -152,6 +151,8 @@ Both `aws/samconfig.toml` and `aws/samconfig.toml.tpl` are gitignored.
 | `RateLimitPerSecond` / `RateLimitBurst` | samconfig or repo variables `RATE_LIMIT_PER_SECOND` / `RATE_LIMIT_BURST` (optional) | netcidr's per-client limiter. Defaults 20 / 50 |
 | `ReservedConcurrency` | samconfig or repo variable `RESERVED_CONCURRENCY` (optional) | Function reserved concurrency. Default `0` (unreserved): this account's total limit is 10, all of which AWS keeps unreserved. Raise the Lambda "Concurrent executions" quota, then set e.g. 5 |
 | `OriginVerifySecret` | samconfig / 1Password (`origin-verify/secret`) | ≥ 32 random chars; CloudFront sends it as `X-Origin-Verify`. Rotate by deploying a new value; CloudFront and Lambda update together, so expect a few minutes of 403s while edges catch up |
+| `HoneycombApiKey` | swamp stack model / 1Password (`honeycomb-netcidr/credential`) | Honeycomb ingest key (`netcidr-prod` environment). Set → the template adds `OTEL_EXPORTER_OTLP_ENDPOINT`/`_HEADERS`/`OTEL_SERVICE_NAME` and the Lambda exports traces (netcidr ADR-0004); empty → export off. The artifact builds with `features: lambda,ipam-postgres,otel` so the exporter is compiled in. Like `DatabaseUrl`, it ends up as a plain Lambda env var, readable by anyone with `lambda:GetFunctionConfiguration` |
+| `OtlpEndpoint` | template default (optional) | OTLP/HTTP base URL, default `https://api.honeycomb.io`; EU teams use `https://api.eu1.honeycomb.io` |
 | `CertificateArn` | samconfig | ACM cert ARN — must be in **us-east-1** (CloudFront constraint), regardless of stack region |
 | `CLOUDFLARE_API_TOKEN` | .env | Token needs `Zone:DNS:Edit` |
 | `CLOUDFLARE_ZONE_ID` | .env | From the zone overview page |

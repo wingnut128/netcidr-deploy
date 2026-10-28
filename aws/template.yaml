@@ -63,6 +63,21 @@ Parameters:
       Function URL can't be used to go around CloudFront. At least 32
       characters. Changing it 403s requests through CloudFront edges that
       haven't picked up the new value yet, typically for a few minutes.
+  HoneycombApiKey:
+    Type: String
+    NoEcho: true
+    Default: ""
+    Description: |
+      Honeycomb ingest key for the netcidr-prod environment. When set, the
+      Lambda exports its traces over OTLP/HTTP to OtlpEndpoint (the binary
+      must be built with netcidr's `otel` feature). Empty leaves export
+      off: netcidr attaches no exporter without OTEL_EXPORTER_OTLP_ENDPOINT.
+  OtlpEndpoint:
+    Type: String
+    Default: https://api.honeycomb.io
+    Description: |
+      OTLP/HTTP base URL; the exporter appends /v1/traces. Honeycomb EU
+      teams use https://api.eu1.honeycomb.io.
   LogRetentionDays:
     Type: Number
     Default: 14
@@ -114,6 +129,7 @@ Conditions:
   HasCliClient: !And
     - !Not [!Equals [!Ref OidcCliClientId, ""]]
     - !Not [!Equals [!Ref OidcCliClientSecret, ""]]
+  HasHoneycomb: !Not [!Equals [!Ref HoneycombApiKey, ""]]
 
 Globals:
   Function:
@@ -169,6 +185,12 @@ Resources:
           # Lambda's `provided.al2023` runtime sets AWS_LAMBDA_LOG_LEVEL,
           # but our Rust app reads RUST_LOG.
           RUST_LOG: info,tower_http=warn
+          # OTLP trace export to Honeycomb (netcidr ADR-0004). Setting the
+          # endpoint is what turns export on, so all three are dropped when
+          # no key is configured.
+          OTEL_EXPORTER_OTLP_ENDPOINT: !If [HasHoneycomb, !Ref OtlpEndpoint, !Ref AWS::NoValue]
+          OTEL_EXPORTER_OTLP_HEADERS: !If [HasHoneycomb, !Sub "x-honeycomb-team=${HoneycombApiKey}", !Ref AWS::NoValue]
+          OTEL_SERVICE_NAME: !If [HasHoneycomb, !Ref AppName, !Ref AWS::NoValue]
       # netcidr's lambda binary runs its expiry sweep when invoked with an
       # EventBridge Scheduled Event (the default payload of a Schedule
       # rule); every other payload is an HTTP request. SAM creates the rule
